@@ -4,8 +4,8 @@ const sqlite3 = require('sqlite3').verbose();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Memastikan ADMIN_ID dibaca sebagai Angka (Number)
-const ADMIN_ID = Number(process.env.ADMIN_ID); 
+// Konversi ADMIN_ID ke Number dan hapus spasi jika ada
+const ADMIN_ID = Number(String(process.env.ADMIN_ID).trim());
 
 // 1. DATABASE SETUP
 const db = new sqlite3.Database('./database.db');
@@ -17,7 +17,7 @@ db.serialize(() => {
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
-      db.run(`INSERT INTO store (id, name, desc, qris, admin_uname) VALUES (1, 'Toko Digital Saya', 'Selamat datang di toko kami! Silakan pilih produk.', '', 'username_admin')`);
+      db.run(`INSERT INTO store (id, name, desc, qris, admin_uname) VALUES (1, 'Toko Digital Saya', 'Selamat datang di toko kami! Silakan pilih produk.', '', '')`);
     }
   });
 });
@@ -31,7 +31,6 @@ const getMainMenu = (userId) => {
     [Markup.button.callback('📞 Kontak Admin', 'user_contact')]
   ];
   
-  // Validasi ID Admin yang Presisi
   if (Number(userId) === ADMIN_ID) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
   }
@@ -48,7 +47,7 @@ const getAdminMenu = () => {
   ]);
 };
 
-// 3. COMMAND & MAIN MENU
+// 3. COMMANDS
 bot.start((ctx) => {
   db.get(`SELECT * FROM store WHERE id = 1`, (err, store) => {
     ctx.reply(`Welcome to *${store.name}*\n\n${store.desc}`, {
@@ -56,6 +55,15 @@ bot.start((ctx) => {
       ...getMainMenu(ctx.from.id)
     });
   });
+});
+
+// Perintah langsung ketik /admin
+bot.command('admin', (ctx) => {
+  if (Number(ctx.from.id) === ADMIN_ID) {
+    ctx.reply('⚙️ *DASHBOARD ADMIN TOKO*', { parse_mode: 'Markdown', ...getAdminMenu() });
+  } else {
+    ctx.reply(`❌ Akses Ditolak!\nID Anda: \`${ctx.from.id}\`\nID Admin di Railway: \`${ADMIN_ID}\`\n\nJika angka ini berbeda, ubah ADMIN_ID di Railway Variables.`, { parse_mode: 'Markdown' });
+  }
 });
 
 bot.action('main_menu', (ctx) => {
@@ -78,7 +86,7 @@ bot.action('user_contact', (ctx) => {
         [Markup.button.url('💬 Chat Admin Langsung', `https://t.me/${uname}`)]
       ]));
     } else {
-      ctx.reply(`Hubungi Admin di Telegram ID: ${ADMIN_ID}`);
+      ctx.reply(`Admin belum mengatur Username. Silakan hubungi via ID: ${ADMIN_ID}`);
     }
   });
 });
