@@ -1,16 +1,13 @@
 {
-  "name": "bot-toko-telegram",
+  "name": "bot-telegram",
   "version": "1.0.0",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "telegraf": "^4.15.3",
-    "sqlite3": "^5.1.7"
-  },
-  "engines": {
-    "node": "20.x"
+    "telegraf": "^4.16.3",
+    "sqlite3": "^5.1.7",
+    "dotenv": "^16.4.5"
   }
 }
