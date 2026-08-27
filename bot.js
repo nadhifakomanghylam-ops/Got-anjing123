@@ -4,9 +4,12 @@ const sqlite3 = require('sqlite3').verbose();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Konversi ADMIN_ID ke String & Number agar tidak mismatch/gagal deteksi
-const RAW_ADMIN_ID = process.env.ADMIN_ID ? String(process.env.ADMIN_ID).trim() : '';
-const ADMIN_ID = Number(RAW_ADMIN_ID);
+// Ambil ADMIN_ID dengan aman agar tidak crash jika kosong
+const getAdminId = () => {
+  const raw = process.env.ADMIN_ID;
+  if (!raw) return 0;
+  return Number(String(raw).replace(/[^0-9]/g, ''));
+};
 
 // 1. DATABASE SETUP
 const db = new sqlite3.Database('./database.db');
@@ -27,12 +30,13 @@ const userState = {};
 
 // 2. KEYBOARD NAVIGATION
 const getMainMenu = (userId) => {
+  const adminId = getAdminId();
   const buttons = [
     [Markup.button.callback('🛒 Katalog Produk', 'user_catalog')],
     [Markup.button.callback('📞 Kontak Admin', 'user_contact')]
   ];
   
-  if (Number(userId) === ADMIN_ID) {
+  if (Number(userId) === adminId && adminId !== 0) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
   }
   return Markup.inlineKeyboard(buttons);
@@ -51,29 +55,30 @@ const getAdminMenu = () => {
 // 3. COMMANDS
 bot.start((ctx) => {
   db.get(`SELECT * FROM store WHERE id = 1`, (err, store) => {
-    ctx.reply(`Welcome to *${store.name}*\n\n${store.desc}`, {
-      parse_mode: 'Markdown',
-      ...getMainMenu(ctx.from.id)
-    });
+    ctx.reply(`Welcome to ${store.name}\n\n${store.desc}`, getMainMenu(ctx.from.id));
   });
 });
 
-// Perintah manual /admin (Pasti merespon)
+// Perintah manual /admin (Aman Anti Crash)
 bot.command('admin', (ctx) => {
-  if (Number(ctx.from.id) === ADMIN_ID) {
-    ctx.reply('⚙️ *DASHBOARD ADMIN TOKO*', { parse_mode: 'Markdown', ...getAdminMenu() });
+  const adminId = getAdminId();
+  const userId = Number(ctx.from.id);
+
+  if (adminId === 0) {
+    return ctx.reply(`⚠️ Variabel ADMIN_ID di Railway belum diisi!\nID Anda saat ini: ${userId}`);
+  }
+
+  if (userId === adminId) {
+    ctx.reply('⚙️ DASHBOARD ADMIN TOKO', getAdminMenu());
   } else {
-    ctx.reply(`❌ *Akses Ditolak!*\n\nID Telegram Kamu: \`${ctx.from.id}\`\nID Admin di Railway: \`${ADMIN_ID}\`\n\n_Jika kedua ID di atas berbeda, ubah variabel ADMIN_ID di Railway._`, { parse_mode: 'Markdown' });
+    ctx.reply(`❌ Akses Ditolak!\n\nID Anda: ${userId}\nID Admin Railway: ${adminId}\n\nUbah ADMIN_ID di Railway jika berbeda.`);
   }
 });
 
 bot.action('main_menu', (ctx) => {
   ctx.answerCbQuery();
   db.get(`SELECT * FROM store WHERE id = 1`, (err, store) => {
-    ctx.editMessageText(`Welcome to *${store.name}*\n\n${store.desc}`, {
-      parse_mode: 'Markdown',
-      ...getMainMenu(ctx.from.id)
-    });
+    ctx.editMessageText(`Welcome to ${store.name}\n\n${store.desc}`, getMainMenu(ctx.from.id));
   });
 });
 
@@ -87,7 +92,7 @@ bot.action('user_contact', (ctx) => {
         [Markup.button.url('💬 Chat Admin Langsung', `https://t.me/${uname}`)]
       ]));
     } else {
-      ctx.reply(`Admin belum mengatur Username. Kontak via ID: ${ADMIN_ID}`);
+      ctx.reply(`Admin belum mengatur Username. Hubungi via ID: ${getAdminId()}`);
     }
   });
 });
@@ -113,12 +118,12 @@ bot.action('user_catalog', (ctx) => {
         buttons.push([Markup.button.callback(btnText, `buy_${prod.id}`)]);
       }
 
-      const caption = `📌 *${prod.name}*\nHarga: Rp${prod.price.toLocaleString('id-ID')}\nStok: ${prod.stock_count}`;
+      const caption = `📌 ${prod.name}\nHarga: Rp${prod.price.toLocaleString('id-ID')}\nStok: ${prod.stock_count}`;
 
       if (prod.photo) {
-        ctx.replyWithPhoto(prod.photo, { caption, parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+        ctx.replyWithPhoto(prod.photo, { caption, ...Markup.inlineKeyboard(buttons) });
       } else {
-        ctx.reply(caption, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+        ctx.reply(caption, Markup.inlineKeyboard(buttons));
       }
     });
   });
@@ -132,12 +137,12 @@ bot.action(/^buy_(.+)$/, (ctx) => {
         const orderId = this.lastID;
         userState[ctx.from.id] = { step: 'WAITING_PROOF', orderId: orderId };
         
-        const text = `🛒 *PESANAN #${orderId}*\n\nProduk: ${prod.name}\nTotal: Rp${prod.price.toLocaleString('id-ID')}\n\nSilakan scan/transfer via QRIS di bawah ini, lalu *kirim screenshot bukti transfer ke chat bot ini*.`;
+        const text = `🛒 PESANAN #${orderId}\n\nProduk: ${prod.name}\nTotal: Rp${prod.price.toLocaleString('id-ID')}\n\nSilakan scan/transfer via QRIS di bawah ini, lalu kirim screenshot bukti transfer ke chat bot ini.`;
         
         if (store && store.qris) {
-          ctx.replyWithPhoto(store.qris, { caption: text, parse_mode: 'Markdown' });
+          ctx.replyWithPhoto(store.qris, { caption: text });
         } else {
-          ctx.reply(text, { parse_mode: 'Markdown' });
+          ctx.reply(text);
         }
       });
     });
@@ -146,19 +151,20 @@ bot.action(/^buy_(.+)$/, (ctx) => {
 
 // 5. DASHBOARD ADMIN
 bot.action('admin_dashboard', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
+  if (Number(ctx.from.id) !== getAdminId()) return;
   ctx.answerCbQuery();
-  ctx.editMessageText('⚙️ *DASHBOARD ADMIN TOKO*', { parse_mode: 'Markdown', ...getAdminMenu() });
+  ctx.editMessageText('⚙️ DASHBOARD ADMIN TOKO', getAdminMenu());
 });
 
 bot.action('admin_add_prod', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
-  userState[ADMIN_ID] = { step: 'ADD_PROD_NAME' };
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
+  userState[adminId] = { step: 'ADD_PROD_NAME' };
   ctx.reply('Ketik Nama Produk baru:');
 });
 
 bot.action('admin_add_stock', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
+  if (Number(ctx.from.id) !== getAdminId()) return;
   db.all(`SELECT * FROM products`, (err, products) => {
     if (!products || products.length === 0) return ctx.reply('Belum ada produk.');
     const buttons = products.map(p => [Markup.button.callback(`📦 ${p.name}`, `addstock_${p.id}`)]);
@@ -168,31 +174,35 @@ bot.action('admin_add_stock', (ctx) => {
 });
 
 bot.action(/^addstock_(.+)$/, (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
-  userState[ADMIN_ID] = { step: 'INPUT_STOCK', prodId: ctx.match[1] };
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
+  userState[adminId] = { step: 'INPUT_STOCK', prodId: ctx.match[1] };
   ctx.reply('Kirimkan teks lisensi/voucher atau kirimkan file/dokumen stok ke bot ini:');
 });
 
 bot.action('admin_set_qris', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
-  userState[ADMIN_ID] = { step: 'SET_QRIS' };
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
+  userState[adminId] = { step: 'SET_QRIS' };
   ctx.reply('Kirimkan foto QRIS toko kamu:');
 });
 
 bot.action('admin_set_uname', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
-  userState[ADMIN_ID] = { step: 'SET_UNAME' };
-  ctx.reply('Ketik Username Telegram kamu (contoh: `@UsernameKamu`):');
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
+  userState[adminId] = { step: 'SET_UNAME' };
+  ctx.reply('Ketik Username Telegram kamu (contoh: @UsernameKamu):');
 });
 
 bot.action('admin_edit_store', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
-  userState[ADMIN_ID] = { step: 'EDIT_STORE_NAME' };
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
+  userState[adminId] = { step: 'EDIT_STORE_NAME' };
   ctx.reply('Ketik Nama Toko baru:');
 });
 
 bot.action('admin_del_prod', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
+  if (Number(ctx.from.id) !== getAdminId()) return;
   db.all(`SELECT * FROM products`, (err, products) => {
     if (!products || products.length === 0) return ctx.reply('Tidak ada produk.');
     const buttons = products.map(p => [Markup.button.callback(`❌ ${p.name}`, `del_${p.id}`)]);
@@ -202,20 +212,22 @@ bot.action('admin_del_prod', (ctx) => {
 });
 
 bot.action(/^del_(.+)$/, (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
+  if (Number(ctx.from.id) !== getAdminId()) return;
   db.run(`DELETE FROM products WHERE id = ?`, [ctx.match[1]], () => {
     ctx.reply('✅ Produk berhasil dihapus!');
   });
 });
 
 bot.action('admin_broadcast', (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
-  userState[ADMIN_ID] = { step: 'BROADCAST' };
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
+  userState[adminId] = { step: 'BROADCAST' };
   ctx.reply('Ketik pesan broadcast yang ingin dikirim:');
 });
 
 // 6. EVENT LISTENERS
 bot.on('photo', (ctx) => {
+  const adminId = getAdminId();
   const state = userState[ctx.from.id];
   const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
 
@@ -232,82 +244,86 @@ bot.on('photo', (ctx) => {
       ]
     ]);
     
-    bot.telegram.sendPhoto(ADMIN_ID, photoId, {
-      caption: `🔔 *BUKTI PEMBAYARAN BARU*\n\nOrder ID: #${state.orderId}\nDari User ID: ${ctx.from.id}`,
-      parse_mode: 'Markdown',
-      ...adminButtons
-    });
-  } else if (state && state.step === 'ADD_PROD_PHOTO' && Number(ctx.from.id) === ADMIN_ID) {
+    if (adminId !== 0) {
+      bot.telegram.sendPhoto(adminId, photoId, {
+        caption: `🔔 BUKTI PEMBAYARAN BARU\n\nOrder ID: #${state.orderId}\nDari User ID: ${ctx.from.id}`,
+        ...adminButtons
+      });
+    }
+  } else if (state && state.step === 'ADD_PROD_PHOTO' && Number(ctx.from.id) === adminId) {
     db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, ?)`, [state.name, state.price, photoId]);
-    delete userState[ADMIN_ID];
+    delete userState[adminId];
     ctx.reply('✅ Produk berhasil ditambahkan!');
-  } else if (state && state.step === 'SET_QRIS' && Number(ctx.from.id) === ADMIN_ID) {
+  } else if (state && state.step === 'SET_QRIS' && Number(ctx.from.id) === adminId) {
     db.run(`UPDATE store SET qris = ? WHERE id = 1`, [photoId]);
-    delete userState[ADMIN_ID];
+    delete userState[adminId];
     ctx.reply('✅ Foto QRIS toko diperbarui!');
   }
 });
 
 bot.on('document', (ctx) => {
+  const adminId = getAdminId();
   const state = userState[ctx.from.id];
-  if (Number(ctx.from.id) === ADMIN_ID && state && state.step === 'INPUT_STOCK') {
+  if (Number(ctx.from.id) === adminId && state && state.step === 'INPUT_STOCK') {
     const fileId = ctx.message.document.file_id;
     db.run(`INSERT INTO stock_items (product_id, content) VALUES (?, ?)`, [state.prodId, `FILE:${fileId}`], () => {
-      delete userState[ADMIN_ID];
+      delete userState[adminId];
       ctx.reply('✅ File stok berhasil dimasukkan!');
     });
   }
 });
 
 bot.on('text', (ctx) => {
+  const adminId = getAdminId();
   const state = userState[ctx.from.id];
   if (!state) return;
 
-  if (Number(ctx.from.id) === ADMIN_ID) {
+  if (Number(ctx.from.id) === adminId) {
     if (state.step === 'ADD_PROD_NAME') {
-      userState[ADMIN_ID] = { step: 'ADD_PROD_PRICE', name: ctx.message.text };
+      userState[adminId] = { step: 'ADD_PROD_PRICE', name: ctx.message.text };
       ctx.reply('Masukkan harga produk (Angka saja):');
     } else if (state.step === 'ADD_PROD_PRICE') {
       const price = parseInt(ctx.message.text);
       if (isNaN(price)) return ctx.reply('Harga harus angka!');
-      userState[ADMIN_ID] = { step: 'ADD_PROD_PHOTO', name: state.name, price: price };
+      userState[adminId] = { step: 'ADD_PROD_PHOTO', name: state.name, price: price };
       ctx.reply('Kirim foto produk (atau ketik "skip" tanpa foto):');
     } else if (state.step === 'ADD_PROD_PHOTO' && ctx.message.text.toLowerCase() === 'skip') {
       db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, NULL)`, [state.name, state.price]);
-      delete userState[ADMIN_ID];
+      delete userState[adminId];
       ctx.reply('✅ Produk ditambahkan tanpa foto!');
     } else if (state.step === 'INPUT_STOCK') {
       db.run(`INSERT INTO stock_items (product_id, content) VALUES (?, ?)`, [state.prodId, ctx.message.text], () => {
-        delete userState[ADMIN_ID];
+        delete userState[adminId];
         ctx.reply('✅ Kode stok/lisensi ditambahkan!');
       });
     } else if (state.step === 'SET_UNAME') {
       const uname = ctx.message.text.replace('@', '');
       db.run(`UPDATE store SET admin_uname = ? WHERE id = 1`, [uname]);
-      delete userState[ADMIN_ID];
+      delete userState[adminId];
       ctx.reply(`✅ Username admin diubah jadi: @${uname}`);
     } else if (state.step === 'EDIT_STORE_NAME') {
-      userState[ADMIN_ID] = { step: 'EDIT_STORE_DESC', storeName: ctx.message.text };
+      userState[adminId] = { step: 'EDIT_STORE_DESC', storeName: ctx.message.text };
       ctx.reply('Ketik Deskripsi Toko baru:');
     } else if (state.step === 'EDIT_STORE_DESC') {
       db.run(`UPDATE store SET name = ?, desc = ? WHERE id = 1`, [state.storeName, ctx.message.text]);
-      delete userState[ADMIN_ID];
+      delete userState[adminId];
       ctx.reply('✅ Info toko diperbarui!');
     } else if (state.step === 'BROADCAST') {
       db.all(`SELECT DISTINCT user_id FROM orders`, (err, users) => {
         if (users) {
-          users.forEach(u => bot.telegram.sendMessage(u.user_id, `📢 *INFORMASI TOKO*\n\n${ctx.message.text}`, { parse_mode: 'Markdown' }));
+          users.forEach(u => bot.telegram.sendMessage(u.user_id, `📢 INFORMASI TOKO\n\n${ctx.message.text}`));
         }
         ctx.reply(`✅ Broadcast terkirim.`);
       });
-      delete userState[ADMIN_ID];
+      delete userState[adminId];
     }
   }
 });
 
 // 7. APPROVE / REJECT
 bot.action(/^app_(.+)$/, (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
   const orderId = ctx.match[1];
 
   db.get(`SELECT * FROM orders WHERE id = ?`, [orderId], (err, order) => {
@@ -319,12 +335,12 @@ bot.action(/^app_(.+)$/, (ctx) => {
       db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
       db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id = ?`, [stock.id]);
 
-      bot.telegram.sendMessage(order.user_id, `🎉 *Pesanan #${orderId} telah Disetujui!*\n\nBerikut item produk Anda:`, { parse_mode: 'Markdown' })
+      bot.telegram.sendMessage(order.user_id, `🎉 Pesanan #${orderId} telah Disetujui!\n\nBerikut item produk Anda:`)
         .then(() => {
           if (stock.content.startsWith('FILE:')) {
             bot.telegram.sendDocument(order.user_id, stock.content.replace('FILE:', ''));
           } else {
-            bot.telegram.sendMessage(order.user_id, `\`\`\`\n${stock.content}\n\`\`\``, { parse_mode: 'Markdown' });
+            bot.telegram.sendMessage(order.user_id, stock.content);
           }
         });
 
@@ -334,11 +350,11 @@ bot.action(/^app_(.+)$/, (ctx) => {
 });
 
 bot.action(/^rej_(.+)$/, (ctx) => {
-  if (Number(ctx.from.id) !== ADMIN_ID) return;
+  if (Number(ctx.from.id) !== getAdminId()) return;
   const orderId = ctx.match[1];
   db.get(`SELECT * FROM orders WHERE id = ?`, [orderId], (err, order) => {
     db.run(`UPDATE orders SET status = 'REJECTED' WHERE id = ?`, [orderId]);
-    bot.telegram.sendMessage(order.user_id, `❌ *Pesanan #${orderId} ditolak.* Hubungi admin jika ada masalah.`, { parse_mode: 'Markdown' });
+    bot.telegram.sendMessage(order.user_id, `❌ Pesanan #${orderId} ditolak. Hubungi admin jika ada masalah.`);
     ctx.reply(`Order #${orderId} Ditolak.`);
   });
 });
