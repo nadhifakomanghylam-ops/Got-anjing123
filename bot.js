@@ -46,9 +46,17 @@ db.serialize(() => {
     product_id INTEGER, 
     status TEXT, 
     proof TEXT,
+    discount INTEGER DEFAULT 0,
     created_at TEXT
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS stock_items (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, content TEXT, status TEXT DEFAULT 'AVAILABLE')`);
+  
+  // TABEL VOUCHER BARU
+  db.run(`CREATE TABLE IF NOT EXISTS vouchers (
+    code TEXT PRIMARY KEY,
+    discount INTEGER,
+    quota INTEGER
+  )`);
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
@@ -81,7 +89,7 @@ const saveUserAndVisitor = (ctx) => {
 
 const saveGroup = (groupId) => db.run(`INSERT OR IGNORE INTO groups (group_id) VALUES (?)`, [groupId]);
 
-// COMMAND UNTUK CEK ID GRUP & CEK ID USER (BISA PAKAI /id ATAU /cekid)
+// COMMAND UNTUK CEK ID GRUP & CEK ID USER
 bot.command(['id', 'cekid'], (ctx) => {
   const chatId = ctx.chat.id;
   const chatType = ctx.chat.type;
@@ -177,6 +185,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('📦 Isi Stok Produk', 'admin_add_stock'), Markup.button.callback('💳 Set Metode Pembayaran', 'admin_set_payment')],
     [Markup.button.callback('✏️ Edit Info/Foto Toko', 'admin_edit_store'), Markup.button.callback('👤 Set Admin Username', 'admin_set_uname')],
     [Markup.button.callback('🔒 Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('📢 Set Grup Log & Testi', 'admin_set_log_group')],
+    [Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
     [Markup.button.callback('📢 Broadcast All User', 'admin_broadcast'), Markup.button.callback('📢 Broadcast All Grup', 'admin_broadcast_group')],
     [Markup.button.callback('🔙 Kembali ke Menu Utama', 'main_menu')]
   ]);
@@ -248,37 +257,60 @@ bot.action(/^buy_(.+)$/, checkMembership, async (ctx) => {
     db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [prodId], (err, res) => {
       if (!res || res.stock_count <= 0) return ctx.reply(`⚠️ Stok *${prod.name}* sedang habis!`);
 
-      const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-      const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+      const buttons = Markup.inlineKeyboard([
+        [Markup.button.callback('🎟️ Pakai Kode Voucher', `vouc_${prodId}`)],
+        [Markup.button.callback('⏩ Bayar Tanpa Voucher', `pay_${prodId}_0`)]
+      ]);
+      ctx.replyWithMarkdown(`🛒 *Opsi Pembelian ${prod.name}*\n💰 *Harga Normal:* Rp${prod.price.toLocaleString('id-ID')}\n\nApakah Anda memiliki Kode Voucher Diskon?`, buttons);
+    });
+  });
+});
 
-      db.run(`INSERT INTO orders (user_id, username, product_id, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)`, [ctx.from.id, username, prodId, now], function(err) {
-        const orderId = this.lastID;
-        userState[ctx.from.id] = { step: 'WAITING_PROOF', orderId: orderId };
+bot.action(/^vouc_(.+)$/, (ctx) => {
+  const prodId = ctx.match[1];
+  userState[ctx.from.id] = { step: 'INPUT_VOUCHER', prodId: prodId };
+  ctx.reply('Ketikkan Kode Voucher Diskon Anda:');
+});
 
-        db.get(`SELECT * FROM store WHERE id = 1`, (err, store) => {
-          const detailText = `🧾 *RINCIAN PESANAN #${orderId}*\n\n` +
-            `📦 *Produk:* ${prod.name}\n` +
-            `💵 *Total:* Rp${prod.price.toLocaleString('id-ID')}\n` +
-            `👤 *Pembeli:* ${username}\n` +
-            `🕒 *Waktu:* ${now}\n\n` +
-            `💳 *METODE PEMBAYARAN:*\n` +
-            `💙 *DANA:* \`${store.dana || 'Belum diset'}\`\n` +
-            `🟢 *GOPAY:* \`${store.gopay || 'Belum diset'}\`\n` +
-            `_(Ketuk angka rekening/e-wallet di atas untuk menyalin otomatis)_\n\n` +
-            `📸 *Setelah bayar, wajib kirimkan foto Bukti Transfer ke chat ini!*`;
+bot.action(/^pay_(.+)_(.+)$/, checkMembership, async (ctx) => {
+  await deleteMessage(ctx);
+  const prodId = ctx.match[1];
+  const discount = parseInt(ctx.match[2]) || 0;
 
-          if (store && store.qris) {
-            ctx.replyWithPhoto(store.qris, { caption: detailText, parse_mode: 'Markdown' });
-          } else {
-            ctx.replyWithMarkdown(detailText);
-          }
-        });
+  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
+    const finalPrice = Math.max(0, prod.price - discount);
+    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+
+    db.run(`INSERT INTO orders (user_id, username, product_id, status, discount, created_at) VALUES (?, ?, ?, 'PENDING', ?, ?)`, [ctx.from.id, username, prodId, discount, now], function(err) {
+      const orderId = this.lastID;
+      userState[ctx.from.id] = { step: 'WAITING_PROOF', orderId: orderId };
+
+      db.get(`SELECT * FROM store WHERE id = 1`, (err, store) => {
+        const detailText = `🧾 *RINCIAN PESANAN #${orderId}*\n\n` +
+          `📦 *Produk:* ${prod.name}\n` +
+          `💰 *Harga Asli:* Rp${prod.price.toLocaleString('id-ID')}\n` +
+          `🎟️ *Diskon Voucher:* Rp${discount.toLocaleString('id-ID')}\n` +
+          `💵 *Total Bayar:* Rp${finalPrice.toLocaleString('id-ID')}\n` +
+          `👤 *Pembeli:* ${username}\n` +
+          `🕒 *Waktu:* ${now}\n\n` +
+          `💳 *METODE PEMBAYARAN:*\n` +
+          `💙 *DANA:* \`${store.dana || 'Belum diset'}\`\n` +
+          `🟢 *GOPAY:* \`${store.gopay || 'Belum diset'}\`\n` +
+          `_(Ketuk angka rekening/e-wallet di atas untuk menyalin otomatis)_\n\n` +
+          `📸 *Setelah bayar, wajib kirimkan foto Bukti Transfer ke chat ini!*`;
+
+        if (store && store.qris) {
+          ctx.replyWithPhoto(store.qris, { caption: detailText, parse_mode: 'Markdown' });
+        } else {
+          ctx.replyWithMarkdown(detailText);
+        }
       });
     });
   });
 });
 
-// DASHBOARD ADMIN & HANDLERS LENGKAP
+// DASHBOARD ADMIN & HANDLERS
 bot.action('admin_dashboard', async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   await deleteMessage(ctx);
@@ -372,6 +404,28 @@ bot.action('set_gopay', (ctx) => { userState[getAdminId()] = { step: 'SET_GOPAY'
 bot.action('set_qris', (ctx) => { userState[getAdminId()] = { step: 'SET_QRIS' }; ctx.reply('Kirim foto QRIS:'); });
 bot.action('admin_set_log_group', (ctx) => { userState[getAdminId()] = { step: 'SET_LOG_GROUP' }; ctx.reply('Ketik ID Grup Log/Testimoni (contoh: -100xxx):'); });
 
+// FITUR VOUCHER ADMIN
+bot.action('admin_add_voucher', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_VOUC_CODE' };
+  ctx.reply('Ketik Kode Voucher Baru (contoh: PROMO5K):');
+});
+
+bot.action('admin_del_voucher', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM vouchers`, (err, rows) => {
+    if (!rows || rows.length === 0) return ctx.reply('Belum ada voucher aktif.');
+    const buttons = rows.map(v => [Markup.button.callback(`🗑️ ${v.code} (Potongan Rp${v.discount.toLocaleString('id-ID')})`, `delvouc_${v.code}`)]);
+    ctx.reply('Pilih voucher yang ingin dihapus:', Markup.inlineKeyboard(buttons));
+  });
+});
+
+bot.action(/^delvouc_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.run(`DELETE FROM vouchers WHERE code = ?`, [ctx.match[1]]);
+  ctx.reply(`✅ Voucher ${ctx.match[1]} berhasil dihapus!`);
+});
+
 bot.action('admin_broadcast', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'BROADCAST_USER' };
@@ -413,11 +467,45 @@ bot.on('photo', (ctx) => {
   }
 });
 
-// HANDLER TEXT & PROSES INPUT ADMIN
+// HANDLER TEXT & PROSES INPUT
 bot.on('text', (ctx) => {
   const adminId = getAdminId();
   const state = userState[ctx.from.id];
   if (!state) return;
+
+  // USER VOUCHER INPUT
+  if (state.step === 'INPUT_VOUCHER') {
+    const code = ctx.message.text.trim().toUpperCase();
+    db.get(`SELECT * FROM vouchers WHERE code = ? AND quota > 0`, [code], (err, vouc) => {
+      if (!vouc) {
+        ctx.reply('⚠️ Kode voucher tidak valid atau sudah habis! Melanjutkan tanpa voucher...');
+        delete userState[ctx.from.id];
+        ctx.reply('Pencet tombol dibawah untuk checkout:', Markup.inlineKeyboard([[Markup.button.callback('⏩ Lanjut Pembayaran', `pay_${state.prodId}_0`)]]));
+      } else {
+        delete userState[ctx.from.id];
+        ctx.reply(`🎉 *VOUCHER BERHASIL:* Potongan Rp${vouc.discount.toLocaleString('id-ID')}`, Markup.inlineKeyboard([[Markup.button.callback('💳 Lanjut ke Pembayaran', `pay_${state.prodId}_${vouc.discount}`)]]));
+      }
+    });
+    return;
+  }
+
+  // USER RATING INPUT
+  if (state.step === 'WAITING_REVIEW') {
+    const reviewText = ctx.message.text.trim();
+    delete userState[ctx.from.id];
+    ctx.reply('⭐️ Terima kasih atas ulasan dan rating Anda!');
+
+    db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
+      if (store && store.log_group_id) {
+        const fullReview = `⭐️ *ULASAN PEMBELI*\n\n` +
+          `👤 *Pembeli:* ${ctx.from.username ? '@' + ctx.from.username : ctx.from.first_name}\n` +
+          `⭐ *Rating:* ${'⭐'.repeat(state.stars)}\n` +
+          `💬 *Ulasan:* "${reviewText}"`;
+        bot.telegram.sendMessage(store.log_group_id, fullReview, { parse_mode: 'Markdown' }).catch(() => {});
+      }
+    });
+    return;
+  }
 
   if (Number(ctx.from.id) === adminId) {
     if (state.step === 'ADD_PROD_NAME') {
@@ -451,6 +539,18 @@ bot.on('text', (ctx) => {
     } else if (state.step === 'EDIT_STORE_PHOTO' && ctx.message.text.toLowerCase() === 'skip') {
       delete userState[adminId];
       ctx.reply('✅ Informasi Toko berhasil diperbarui!');
+    } else if (state.step === 'ADD_VOUC_CODE') {
+      userState[adminId] = { step: 'ADD_VOUC_DISC', code: ctx.message.text.trim().toUpperCase() };
+      ctx.reply('Masukkan Jumlah Potongan Harga (contoh: 5000):');
+    } else if (state.step === 'ADD_VOUC_DISC') {
+      const disc = parseInt(ctx.message.text.trim());
+      userState[adminId] = { step: 'ADD_VOUC_QUOTA', code: state.code, discount: disc };
+      ctx.reply('Masukkan Kuota Penggunaan Voucher (contoh: 10):');
+    } else if (state.step === 'ADD_VOUC_QUOTA') {
+      const quota = parseInt(ctx.message.text.trim());
+      db.run(`INSERT OR REPLACE INTO vouchers (code, discount, quota) VALUES (?, ?, ?)`, [state.code, state.discount, quota]);
+      delete userState[adminId];
+      ctx.reply(`✅ Voucher *${state.code}* berhasil dibuat! Potongan Rp${state.discount.toLocaleString('id-ID')} (${quota}x pakai)`, { parse_mode: 'Markdown' });
     } else if (state.step === 'SET_UNAME') {
       db.run(`UPDATE store SET admin_uname = ? WHERE id = 1`, [ctx.message.text.trim()]);
       delete userState[adminId];
@@ -494,7 +594,7 @@ bot.on('text', (ctx) => {
   }
 });
 
-// APPROVE & REJECT ORDER
+// APPROVE & REJECT ORDER + SISTEM RATING
 bot.action(/^app_(.+)$/, (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   const orderId = ctx.match[1];
@@ -508,15 +608,26 @@ bot.action(/^app_(.+)$/, (ctx) => {
       db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
       db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id = ?`, [stock.id]);
 
-      bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DISETUJUI!*\n\nBerikut item pesanan Anda (#${orderId}):\n\`${stock.content}\``, { parse_mode: 'Markdown' });
+      const ratingButtons = Markup.inlineKeyboard([
+        [
+          Markup.button.callback('⭐ 1', `rate_1`),
+          Markup.button.callback('⭐ 2', `rate_2`),
+          Markup.button.callback('⭐ 3', `rate_3`),
+          Markup.button.callback('⭐ 4', `rate_4`),
+          Markup.button.callback('⭐ 5', `rate_5`)
+        ]
+      ]);
+
+      bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DISETUJUI!*\n\nBerikut item pesanan Anda (#${orderId}):\n\`${stock.content}\`\n\n⭐ *Berikan penilaian transaksi ini:*`, { parse_mode: 'Markdown', ...ratingButtons });
       ctx.reply(`✅ Order #${orderId} Berhasil Di-Approve.`);
 
       db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
         if (store && store.log_group_id) {
+          const finalTotal = Math.max(0, order.product_price - (order.discount || 0));
           const testiText = `🎉 *TESTIMONI TRANSAKSI SUKSES*\n\n` +
             `🧾 *ID Transaksi:* #${order.id}\n` +
             `📦 *Produk:* ${order.product_name}\n` +
-            `💰 *Harga:* Rp${order.product_price.toLocaleString('id-ID')}\n` +
+            `💰 *Total Pembayaran:* Rp${finalTotal.toLocaleString('id-ID')}\n` +
             `👤 *Pembeli:* ${order.username}\n` +
             `🕒 *Tanggal & Jam:* ${order.created_at}\n\n` +
             `✅ _Status: Lunas & Terkirim Otomatis_`;
@@ -527,6 +638,12 @@ bot.action(/^app_(.+)$/, (ctx) => {
       });
     });
   });
+});
+
+bot.action(/^rate_(.+)$/, (ctx) => {
+  const stars = parseInt(ctx.match[1]);
+  userState[ctx.from.id] = { step: 'WAITING_REVIEW', stars: stars };
+  ctx.reply(`Terima kasih memberi ${stars} bintang! ⭐\nSilakan ketik ulasan/pesan Anda untuk toko kami:`);
 });
 
 bot.action(/^rej_(.+)$/, (ctx) => {
