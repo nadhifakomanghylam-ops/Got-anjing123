@@ -4,8 +4,9 @@ const sqlite3 = require('sqlite3').verbose();
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Konversi ADMIN_ID ke Number dan hapus spasi jika ada
-const ADMIN_ID = Number(String(process.env.ADMIN_ID).trim());
+// Konversi ADMIN_ID ke String & Number agar tidak mismatch/gagal deteksi
+const RAW_ADMIN_ID = process.env.ADMIN_ID ? String(process.env.ADMIN_ID).trim() : '';
+const ADMIN_ID = Number(RAW_ADMIN_ID);
 
 // 1. DATABASE SETUP
 const db = new sqlite3.Database('./database.db');
@@ -57,12 +58,12 @@ bot.start((ctx) => {
   });
 });
 
-// Perintah langsung ketik /admin
+// Perintah manual /admin (Pasti merespon)
 bot.command('admin', (ctx) => {
   if (Number(ctx.from.id) === ADMIN_ID) {
     ctx.reply('⚙️ *DASHBOARD ADMIN TOKO*', { parse_mode: 'Markdown', ...getAdminMenu() });
   } else {
-    ctx.reply(`❌ Akses Ditolak!\nID Anda: \`${ctx.from.id}\`\nID Admin di Railway: \`${ADMIN_ID}\`\n\nJika angka ini berbeda, ubah ADMIN_ID di Railway Variables.`, { parse_mode: 'Markdown' });
+    ctx.reply(`❌ *Akses Ditolak!*\n\nID Telegram Kamu: \`${ctx.from.id}\`\nID Admin di Railway: \`${ADMIN_ID}\`\n\n_Jika kedua ID di atas berbeda, ubah variabel ADMIN_ID di Railway._`, { parse_mode: 'Markdown' });
   }
 });
 
@@ -86,7 +87,7 @@ bot.action('user_contact', (ctx) => {
         [Markup.button.url('💬 Chat Admin Langsung', `https://t.me/${uname}`)]
       ]));
     } else {
-      ctx.reply(`Admin belum mengatur Username. Silakan hubungi via ID: ${ADMIN_ID}`);
+      ctx.reply(`Admin belum mengatur Username. Kontak via ID: ${ADMIN_ID}`);
     }
   });
 });
