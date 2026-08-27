@@ -23,22 +23,20 @@ def save_json(path, data):
         json.dump(data, f, indent=4)
 
 def save_products(data):
-    """Simpan data produk ke JSON. Menerima parameter agar tidak bergantung global."""
+    """Simpan data produk ke JSON."""
     save_json(DB_FILE, data)
 
 def save_user_state():
-    """Simpan cart & progress checkout pembeli, agar tidak hilang saat bot restart/sleep."""
+    """Simpan cart & progress checkout pembeli."""
     save_json(STATE_FILE, user_state)
 
 PRODUK = load_json(DB_FILE)
-# JSON keys selalu string, jadi key chat_id (int) akan jadi string setelah load.
-# Kita normalisasi balik ke int agar konsisten dengan pemakaian chat_id di kode.
+
+# Normalisasi key chat_id dari string (hasil load JSON) kembali ke integer
 _raw_state = load_json(STATE_FILE)
 user_state = {int(k): v for k, v in _raw_state.items()}
 
 # --- STATE MANAGEMENT ---
-# user_state: persistent (cart + checkout progress pembeli)
-# admin_state, temp_data: sengaja tetap di RAM (cuma progress form admin, low-risk kalau reset)
 admin_state = {}
 temp_data = {}
 
@@ -81,7 +79,7 @@ def send_welcome(message):
 def callback_handler(call):
     chat_id = call.message.chat.id
     msg_id = call.message.message_id
-    user_id = call.from_user.id  # ✅ FIX: dipakai untuk cek admin, bukan chat_id
+    user_id = call.from_user.id  # Dipakai untuk cek admin
     data = call.data
 
     # --- ROUTING HOME ---
@@ -107,21 +105,21 @@ def callback_handler(call):
 
     # --- ROUTING ADMIN ---
     elif data == "adm_menu":
-        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")  # ✅ FIX
+        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")
         show_admin_menu(chat_id, msg_id)
     elif data == "adm_add_start":
-        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")  # ✅ FIX
+        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")
         admin_state[chat_id] = "await_name"
         bot.send_message(chat_id, "✏️ <b>TAMBAH PRODUK BARU</b>\n\nSilakan ketik <b>Nama Produk</b>:", parse_mode="HTML")
         bot.answer_callback_query(call.id, "Mode tambah produk aktif!")
     elif data == "adm_del_list":
-        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")  # ✅ FIX
+        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")
         show_admin_delete_list(chat_id, msg_id)
     elif data.startswith("adm_del_"):
-        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")  # ✅ FIX
+        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")
         delete_product(chat_id, call, data.split("_")[2])
     elif data == "adm_back":
-        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")  # ✅ FIX
+        if not is_admin(user_id): return bot.answer_callback_query(call.id, "Akses Ditolak!")
         show_admin_menu(chat_id, msg_id)
 
 # ==========================================
@@ -153,7 +151,6 @@ def add_to_cart(chat_id, call, prod_id):
     
     prod = PRODUK[prod_id]
     
-    # Cek stok
     if prod['stok'] <= 0:
         bot.answer_callback_query(call.id, "❌ Maaf, stok produk ini habis!")
         return
@@ -164,13 +161,12 @@ def add_to_cart(chat_id, call, prod_id):
     cart = user_state[chat_id]['cart']
     current_qty = cart.get(prod_id, 0)
     
-    # Cek apakah qty di keranjang sudah mencapai stok
     if current_qty >= prod['stok']:
         bot.answer_callback_query(call.id, f"❌ Stok hanya tersisa {prod['stok']}!")
         return
     
     cart[prod_id] = current_qty + 1
-    save_user_state()  # ✅ persist
+    save_user_state()
     bot.answer_callback_query(call.id, f"✅ {prod['nama']} ditambahkan!")
 
 def show_cart(chat_id, msg_id):
@@ -178,28 +174,28 @@ def show_cart(chat_id, msg_id):
     markup = types.InlineKeyboardMarkup(row_width=1)
     
     if not cart:
-        bot.edit_message_text("🛒 Keranjang Anda masih kosong.\nYuk mulai belanja!", chat_id, msg_id)
+        try: bot.edit_message_text("🛒 Keranjang Anda masih kosong.\nYuk mulai belanja!", chat_id, msg_id)
+        except: pass
         return
 
     text = "<b>🛒 KERANJANG BELANJA</b>\n\n"
     total = 0
     
-    # Buat list item yang valid, skip yang produknya sudah dihapus
     valid_items = []
     removed_any = False
-    for id_p, qty in list(cart.items()):  # Pakai list() agar bisa modify cart di loop
+    for id_p, qty in list(cart.items()):
         if id_p not in PRODUK:
-            # Produk sudah dihapus admin, hapus dari cart
             del cart[id_p]
             removed_any = True
             continue
         valid_items.append((id_p, qty))
-    
+        
     if removed_any:
-        save_user_state()  # ✅ persist perubahan cart
-    
+        save_user_state()
+        
     if not valid_items:
-        bot.edit_message_text("🛒 Keranjang Anda kosong (produk sudah tidak tersedia).", chat_id, msg_id)
+        try: bot.edit_message_text("🛒 Keranjang Anda kosong (produk sudah tidak tersedia).", chat_id, msg_id)
+        except: pass
         return
     
     for id_p, qty in valid_items:
@@ -226,19 +222,17 @@ def show_cart(chat_id, msg_id):
 def update_cart_qty(chat_id, call, prod_id, change):
     cart = user_state.get(chat_id, {}).get('cart', {})
     
-    # Cek apakah produk masih ada
     if prod_id not in PRODUK:
         bot.answer_callback_query(call.id, "❌ Produk sudah tidak tersedia!")
         if prod_id in cart:
             del cart[prod_id]
-            save_user_state()  # ✅ persist
+            save_user_state()
         show_cart(chat_id, call.message.message_id)
         return
     
     if prod_id in cart:
         new_qty = cart[prod_id] + change
         
-        # Cek stok saat menambah
         if change > 0 and new_qty > PRODUK[prod_id]['stok']:
             bot.answer_callback_query(call.id, f"❌ Stok hanya tersisa {PRODUK[prod_id]['stok']}!")
             return
@@ -247,13 +241,14 @@ def update_cart_qty(chat_id, call, prod_id, change):
             del cart[prod_id]
         else:
             cart[prod_id] = new_qty
-        save_user_state()  # ✅ persist
+        save_user_state()
+        
     show_cart(chat_id, call.message.message_id)
     bot.answer_callback_query(call.id, "Keranjang diperbarui!")
 
 def clear_cart(chat_id, call):
     if chat_id in user_state: user_state[chat_id]['cart'] = {}
-    save_user_state()  # ✅ persist
+    save_user_state()
     show_cart(chat_id, call.message.message_id)
     bot.answer_callback_query(call.id, "Keranjang dikosongkan!")
 
@@ -265,7 +260,7 @@ def start_checkout(chat_id, call):
     if not cart: return bot.answer_callback_query(call.id, "Keranjang kosong!")
     
     user_state[chat_id]['step'] = 'ask_name'
-    save_user_state()  # ✅ persist
+    save_user_state()
     bot.send_message(chat_id, "💳 <b>CHECKOUT</b>\n\nSilakan ketik <b>Nama Lengkap</b> Anda:", parse_mode="HTML")
     bot.answer_callback_query(call.id, "Lanjut ke checkout!")
 
@@ -279,16 +274,16 @@ def handle_checkout_text(message):
     if step == 'ask_name':
         user_state[chat_id]['data']['nama'] = message.text
         user_state[chat_id]['step'] = 'ask_address'
-        save_user_state()  # ✅ persist
+        save_user_state()
         bot.send_message(chat_id, "✅ Nama diterima.\n\nSekarang ketik <b>Alamat Lengkap</b> (beserta Kode Pos):", parse_mode="HTML")
     elif step == 'ask_address':
         user_state[chat_id]['data']['alamat'] = message.text
         user_state[chat_id]['step'] = 'ask_phone'
-        save_user_state()  # ✅ persist
+        save_user_state()
         bot.send_message(chat_id, "✅ Alamat diterima.\n\nTerakhir, ketik <b>Nomor WhatsApp/HP</b> yang aktif:")
     elif step == 'ask_phone':
         user_state[chat_id]['data']['hp'] = message.text
-        save_user_state()  # ✅ persist sebelum proses invoice
+        save_user_state()
         process_invoice(chat_id)
 
 def process_invoice(chat_id):
@@ -298,30 +293,25 @@ def process_invoice(chat_id):
     total = 0
     detail = ""
     
-    # Validasi stok lagi sebelum proses (untuk handle race condition)
     for id_p, qty in list(cart.items()):
         if id_p not in PRODUK:
             bot.send_message(chat_id, f"❌ Produk dengan ID {id_p} sudah tidak tersedia.")
             user_state[chat_id] = {'cart': {}}
-            save_user_state()  # ✅ persist
+            save_user_state()
             return
         if PRODUK[id_p]['stok'] < qty:
             bot.send_message(chat_id, f"❌ Stok {PRODUK[id_p]['nama']} tidak cukup! Tersisa: {PRODUK[id_p]['stok']}")
             user_state[chat_id] = {'cart': {}}
-            save_user_state()  # ✅ persist
+            save_user_state()
             return
     
-    # Hitung total & kurangi stok
     for id_p, qty in cart.items():
         p = PRODUK[id_p]
         sub = p['harga'] * qty
         total += sub
         detail += f"• {p['nama']} (x{qty}) = {format_rupiah(sub)}\n"
-        
-        # Kurangi stok
         PRODUK[id_p]['stok'] -= qty
     
-    # Simpan perubahan stok ke database
     save_products(PRODUK)
 
     msg_buyer = (
@@ -348,7 +338,7 @@ def process_invoice(chat_id):
     bot.send_message(ADMIN_ID, msg_admin, parse_mode="HTML")
 
     user_state[chat_id] = {'cart': {}}
-    save_user_state()  # ✅ persist
+    save_user_state()
 
 # ==========================================
 # LOGIKA ADMIN PANEL
@@ -408,9 +398,7 @@ def handle_admin_add(m):
     elif state == 'await_stock':
         try:
             temp_data[chat_id]['stok'] = int(m.text)
-            
             new_id = get_next_product_id()
-                    
             PRODUK[new_id] = {
                 'nama': temp_data[chat_id]['nama'],
                 'harga': temp_data[chat_id]['harga'],
