@@ -89,6 +89,13 @@ db.serialize(() => {
     btn_label TEXT,
     btn_url TEXT
   )`);
+
+  // LIVE CHAT RELAY: mapping pesan yang diteruskan ke admin -> buyer aslinya
+  db.run(`CREATE TABLE IF NOT EXISTS chat_relay (
+    admin_msg_id INTEGER PRIMARY KEY,
+    buyer_id INTEGER,
+    buyer_name TEXT
+  )`);
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
@@ -659,12 +666,51 @@ bot.on('photo', async (ctx) => {
         }).catch(() => {});
       }
     });
+    return;
+  }
+
+  // TERUSKAN FOTO DARI BUYER (di luar alur bukti transfer) KE ADMIN
+  if (!state && Number(userId) !== adminId && adminId) {
+    const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+    const caption = ctx.message.caption || '';
+    const relayCaption = `💬 *Foto dari Buyer*\n👤 ${buyerName} (ID: \`${userId}\`)\n${caption ? `\n${caption}` : ''}\n\n_↩️ Reply pesan ini untuk membalas ke buyer._`;
+    bot.telegram.sendPhoto(adminId, photoId, { caption: relayCaption, parse_mode: 'Markdown' })
+      .then((sentMsg) => {
+        db.run(`INSERT OR REPLACE INTO chat_relay (admin_msg_id, buyer_id, buyer_name) VALUES (?, ?, ?)`, [sentMsg.message_id, userId, buyerName]);
+      })
+      .catch(() => {});
   }
 });
 
 bot.on('text', async (ctx) => {
   const adminId = getAdminId();
-  const state = userState[ctx.from.id];
+  const userId = ctx.from.id;
+  const state = userState[userId];
+
+  // ADMIN MEMBALAS BUYER: reply pesan yang diteruskan bot, otomatis diforward ke buyer aslinya
+  if (Number(userId) === adminId && ctx.message.reply_to_message) {
+    const repliedMsgId = ctx.message.reply_to_message.message_id;
+    const relay = await new Promise((resolve) => {
+      db.get(`SELECT * FROM chat_relay WHERE admin_msg_id = ?`, [repliedMsgId], (err, row) => resolve(row));
+    });
+    if (relay) {
+      bot.telegram.sendMessage(relay.buyer_id, `💬 *Admin:*\n${ctx.message.text}`, { parse_mode: 'Markdown' })
+        .then(() => ctx.reply('✅ Balasan terkirim ke buyer.'))
+        .catch(() => ctx.reply('⚠️ Gagal kirim balasan (mungkin buyer sudah block bot).'));
+      return;
+    }
+  }
+
+  // TERUSKAN SEMUA CHAT BUYER (non-admin, tanpa state aktif) KE ADMIN
+  if (!state && Number(userId) !== adminId && adminId) {
+    const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+    const relayText = `💬 *Chat dari Buyer*\n👤 ${buyerName} (ID: \`${userId}\`)\n\n${ctx.message.text}\n\n_↩️ Reply pesan ini untuk membalas ke buyer._`;
+    bot.telegram.sendMessage(adminId, relayText, { parse_mode: 'Markdown' })
+      .then((sentMsg) => {
+        db.run(`INSERT OR REPLACE INTO chat_relay (admin_msg_id, buyer_id, buyer_name) VALUES (?, ?, ?)`, [sentMsg.message_id, userId, buyerName]);
+      })
+      .catch(() => {});
+  }
 
   if (!state) {
     const textMsg = ctx.message.text.trim().toLowerCase();
