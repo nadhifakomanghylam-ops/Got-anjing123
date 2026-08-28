@@ -3,6 +3,7 @@ const { Telegraf, Markup } = require('telegraf');
 const sqlite3 = require('sqlite3').verbose();
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -11,6 +12,8 @@ const getAdminId = () => {
   if (!raw) return 0;
   return Number(String(raw).replace(/[^0-9]/g, ''));
 };
+
+const RAJAONGKIR_API_KEY = process.env.RAJAONGKIR_API_KEY || '';
 
 // DATABASE SETUP
 const dbPath = path.join(__dirname, 'database.db');
@@ -27,7 +30,9 @@ db.serialize(() => {
     gopay TEXT,
     admin_uname TEXT, 
     required_channel TEXT,
-    log_group_id TEXT
+    log_group_id TEXT,
+    rajaongkir_key TEXT,
+    origin_city TEXT
   )`);
   
   db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -55,7 +60,6 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS stock_items (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, content TEXT, status TEXT DEFAULT 'AVAILABLE')`);
   db.run(`CREATE TABLE IF NOT EXISTS vouchers (code TEXT PRIMARY KEY, discount INTEGER, quota INTEGER)`);
   
-  // TABEL AUTO-REPLY DIPERBARUI (MENDUKUNG MEDIA & BUTTON)
   db.run(`CREATE TABLE IF NOT EXISTS auto_reply (
     keyword TEXT PRIMARY KEY, 
     reply_type TEXT DEFAULT 'text',
@@ -67,14 +71,14 @@ db.serialize(() => {
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
-      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id) VALUES (1, '🛍️ TOKO DIGITAL', 'Selamat datang di toko kami!', '', '', '', '', '', '', '')`);
+      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, rajaongkir_key, origin_city) VALUES (1, '🛍️ TOKO DIGITAL', 'Selamat datang di toko kami!', '', '', '', '', '', '', '', '', '501')`);
     }
   });
 });
 
 const userState = {};
 
-// FUNGSI UPDATE TAMPILAN (ANTI-NUMPUK)
+// FUNGSI UPDATE TAMPILAN
 const safeUpdateMainDisplay = async (ctx, text, extra = {}) => {
   try {
     if (ctx.callbackQuery && ctx.callbackQuery.message) {
@@ -189,8 +193,9 @@ const getMainMenu = (userId) => {
   const buttons = [
     [Markup.button.callback('🛒 Katalog Produk', 'user_catalog'), Markup.button.callback('🔍 Cari Produk', 'user_search_prod')],
     [Markup.button.callback('📦 Cek Pesanan', 'user_my_orders'), Markup.button.callback('📊 Cek Stok Live', 'user_live_stock')],
-    [Markup.button.callback('🔗 Program Referral', 'user_referral'), Markup.button.callback('📖 Cara Belanja', 'user_faq')],
-    [Markup.button.callback('📞 Customer Service', 'user_contact'), Markup.button.callback('🆔 Cek ID', 'user_check_id')]
+    [Markup.button.callback('🚚 Cek Ongkir RajaOngkir', 'user_check_ongkir'), Markup.button.callback('🔗 Program Referral', 'user_referral')],
+    [Markup.button.callback('📖 Cara Belanja', 'user_faq'), Markup.button.callback('📞 Customer Service', 'user_contact')],
+    [Markup.button.callback('🆔 Cek ID', 'user_check_id')]
   ];
   if (Number(userId) === adminId && adminId !== 0) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
@@ -203,13 +208,13 @@ const getAdminMenu = () => {
     [Markup.button.callback('📊 Statistik', 'admin_stats'), Markup.button.callback('💾 Backup DB', 'admin_backup')],
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('💳 Metode Bayar', 'admin_set_payment')],
-    [Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store'), Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo')],
-    [Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply_type'), Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply')],
-    [Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname'), Markup.button.callback('🔒 Wajib Join', 'admin_set_channel')],
-    [Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group'), Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher')],
-    [Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher'), Markup.button.callback('👥 Top Referral', 'admin_top_ref')],
-    [Markup.button.callback('📢 Broadcast Text', 'admin_broadcast_menu'), Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button')],
-    [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
+    [Markup.button.callback('🚚 Config RajaOngkir', 'admin_config_rajaongkir'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
+    [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply_type')],
+    [Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply'), Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname')],
+    [Markup.button.callback('🔒 Wajib Join', 'admin_set_channel'), Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group')],
+    [Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
+    [Markup.button.callback('👥 Top Referral', 'admin_top_ref'), Markup.button.callback('📢 Broadcast Text', 'admin_broadcast_menu')],
+    [Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button'), Markup.button.callback('🔙 Menu Utama', 'main_menu')]
   ]);
 };
 
@@ -239,6 +244,13 @@ bot.action('main_menu', checkMembership, async (ctx) => {
 bot.action('user_check_id', async (ctx) => {
   ctx.answerCbQuery();
   ctx.replyWithMarkdown(`👤 *ID Pengguna Anda:* \`${ctx.from.id}\``);
+});
+
+// FITUR RAJAONGKIR (USER: CEK ONGKIR)
+bot.action('user_check_ongkir', async (ctx) => {
+  ctx.answerCbQuery();
+  userState[ctx.from.id] = { step: 'ONGKIR_DESTINATION' };
+  await safeUpdateMainDisplay(ctx, `🚚 *CEK ONGKOS KIRIM (RajaOngkir)*\n\nMasukkan ID Kota / Kabupaten Tujuan Pengiriman (contoh ID: 152 untuk Jakarta Pusat, 501 untuk Yogyakarta):`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'main_menu')]]));
 });
 
 bot.action('user_faq', async (ctx) => {
@@ -392,6 +404,12 @@ bot.action('admin_dashboard', async (ctx) => {
   await safeUpdateMainDisplay(ctx, '⚙️ *DASHBOARD ADMIN TOKO*', getAdminMenu());
 });
 
+bot.action('admin_config_rajaongkir', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_ORIGIN_CITY' };
+  ctx.reply('🚚 Ketik ID Kota / Kabupaten Asal Pengiriman (Origin ID RajaOngkir, contoh: 501 untuk Yogyakarta):');
+});
+
 bot.action('admin_stats', async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   db.get(`SELECT COUNT(user_id) AS total_visitors FROM visitors`, (err, row) => {
@@ -469,7 +487,6 @@ bot.action('admin_set_header_photo', (ctx) => {
   ctx.reply('🖼️ Kirim foto baru untuk dijadikan Header / Banner Toko:');
 });
 
-// PENGATURAN AUTO-REPLY DENGAN OPSI MEDIA & BUTTON
 bot.action('admin_autoreply_type', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   ctx.reply('🤖 *TAMBAH AUTO-REPLY*\n\nPilih jenis balasan otomatis yang ingin dibuat:', Markup.inlineKeyboard([
@@ -572,7 +589,6 @@ bot.on(['photo', 'video', 'document'], (ctx) => {
   const state = userState[ctx.from.id];
   if (!state) return;
 
-  // AUTO REPLY MEDIA BY ADMIN
   if (Number(ctx.from.id) === adminId && state.step === 'ADD_AUTOREPLY_MEDIA') {
     let fileId = '';
     if (ctx.message.photo) fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
@@ -587,7 +603,6 @@ bot.on(['photo', 'video', 'document'], (ctx) => {
     return;
   }
 
-  // FOTO PROOF / ADMIN PROD
   if (ctx.message.photo) {
     const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
     if (state.step === 'WAITING_PROOF') {
@@ -615,11 +630,10 @@ bot.on(['photo', 'video', 'document'], (ctx) => {
 });
 
 // HANDLER TEXT & INPUT
-bot.on('text', (ctx) => {
+bot.on('text', async (ctx) => {
   const adminId = getAdminId();
   const state = userState[ctx.from.id];
 
-  // PENGECEKAN AUTO-REPLY UNTUK CHAT PRIVATE (USER)
   if (ctx.chat.type === 'private' && !state) {
     const userText = ctx.message.text.trim().toLowerCase();
     db.get(`SELECT * FROM auto_reply WHERE ? LIKE '%' || keyword || '%'`, [userText], (err, row) => {
@@ -640,6 +654,48 @@ bot.on('text', (ctx) => {
   }
 
   if (!state) return;
+
+  // HANDLER PROSES CEK ONGKIR RAJAONGKIR
+  if (state.step === 'ONGKIR_DESTINATION') {
+    const destinationCity = ctx.message.text.trim();
+    delete userState[ctx.from.id];
+
+    db.get(`SELECT origin_city FROM store WHERE id = 1`, async (err, store) => {
+      const origin = (store && store.origin_city) ? store.origin_city : '501';
+      const apiKey = RAJAONGKIR_API_KEY;
+
+      if (!apiKey) {
+        return ctx.reply('⚠️ API Key RajaOngkir belum dikonfigurasi pada environment file.');
+      }
+
+      try {
+        const response = await axios.post('https://api.rajaongkir.com/starter/cost', {
+          origin: origin,
+          destination: destinationCity,
+          weight: 1000, // Default 1 kg
+          courier: 'jne'
+        }, {
+          headers: { key: apiKey, 'content-type': 'application/x-www-form-urlencoded' }
+        });
+
+        const results = response.data.rajaongkir.results[0];
+        let text = `📦 *HASIL CEK ONGKIR (JNE)*\n` +
+          `📍 *Dari:* ${response.data.rajaongkir.origin_details.city_name}\n` +
+          `🏁 *Tujuan:* ${response.data.rajaongkir.destination_details.city_name}\n\n`;
+
+        results.costs.forEach(c => {
+          text += `🔹 *${c.service}* (${c.description})\n` +
+            `💰 *Biaya:* Rp${c.cost[0].value.toLocaleString('id-ID')}\n` +
+            `⏱ *Estimasi:* ${c.cost[0].etd} Hari\n\n`;
+        });
+
+        ctx.replyWithMarkdown(text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+      } catch (e) {
+        ctx.reply('❌ Gagal mengecek ongkir. Pastikan ID Kota Tujuan benar.');
+      }
+    });
+    return;
+  }
 
   if (state.step === 'SEARCH_PRODUCT') {
     const keyword = ctx.message.text.trim();
@@ -687,6 +743,14 @@ bot.on('text', (ctx) => {
   }
 
   if (Number(ctx.from.id) === adminId) {
+    if (state.step === 'SET_ORIGIN_CITY') {
+      const cityId = ctx.message.text.trim();
+      db.run(`UPDATE store SET origin_city = ? WHERE id = 1`, [cityId]);
+      delete userState[adminId];
+      ctx.reply(`✅ ID Kota Asal Pengiriman berhasil disimpan (${cityId})!`);
+      return;
+    }
+
     if (state.step === 'ADD_AUTOREPLY_KEY') {
       const keyword = ctx.message.text.trim().toLowerCase();
       if (['photo', 'video', 'document'].includes(state.type)) {
@@ -710,8 +774,8 @@ bot.on('text', (ctx) => {
       userState[adminId] = { step: 'ADD_AUTOREPLY_BTN_URL', keyword: state.keyword, content: state.content, label: ctx.message.text };
       ctx.reply('Ketik URL/Link Tombol (contoh: https://google.com):');
     } else if (state.step === 'ADD_AUTOREPLY_BTN_URL') {
-      db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply_type, content, btn_label, btn_url) VALUES (?, 'button', ?, ?, ?)`, 
-        [state.keyword, state.content, state.label, ctx.message.text.trim()]);
+      db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply_type, content, btn_label, btn_url) VALUES (?, ?, ?, ?, ?)`, 
+        [state.keyword, 'button', state.content, state.label, ctx.message.text.trim()]);
       delete userState[adminId];
       ctx.reply(`✅ Auto-reply Tombol untuk kata kunci *${state.keyword}* berhasil disimpan!`, { parse_mode: 'Markdown' });
     } else if (state.step === 'BC_BTN_TEXT') {
@@ -836,11 +900,9 @@ bot.action(/^app_(.+)$/, (ctx) => {
         [Markup.button.callback('⭐ 1', `rate_1`), Markup.button.callback('⭐ 2', `rate_2`), Markup.button.callback('⭐ 3', `rate_3`), Markup.button.callback('⭐ 4', `rate_4`), Markup.button.callback('⭐ 5', `rate_5`)]
       ]);
 
-      // Kirim barang/akun ke pembeli
       bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DISETUJUI!*\n\nDetail Pesanan (#${orderId}):\n\`${stock.content}\`\n\n⭐ Berikan penilaian transaksi:`, { parse_mode: 'Markdown', ...ratingButtons });
       ctx.reply(`✅ Order #${orderId} Berhasil Di-Approve dan Stok terkirim ke pembeli.`);
 
-      // OTOMATIS KIRIM TESTIMONI KE GRUP LOG
       db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
         if (store && store.log_group_id && store.log_group_id.trim() !== '') {
           const finalTotal = Math.max(0, order.product_price - (order.discount || 0));
