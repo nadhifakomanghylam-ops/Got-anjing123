@@ -12,7 +12,10 @@ const getAdminId = () => {
 };
 
 // DATABASE SETUP
-const dbPath = path.join(__dirname, 'database.db');
+// PENTING: DB_PATH harus diarahkan ke folder Volume Railway agar data tidak hilang saat redeploy.
+// Kalau DB_PATH tidak diset, fallback ke folder project (TIDAK persist di Railway tanpa Volume).
+const dbDir = process.env.DB_PATH || __dirname;
+const dbPath = path.join(dbDir, 'database.db');
 const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
@@ -26,8 +29,11 @@ db.serialize(() => {
     gopay TEXT,
     admin_uname TEXT, 
     required_channel TEXT,
-    log_group_id TEXT
+    log_group_id TEXT,
+    song TEXT
   )`);
+  // Migration: tambah kolom 'song' kalau database lama belum punya
+  db.run(`ALTER TABLE store ADD COLUMN song TEXT`, () => {});
   
   db.run(`CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -73,6 +79,21 @@ db.serialize(() => {
 
 const userState = {};
 
+// CEK CHAT ID (bisa dipakai di grup untuk dapetin ID yang benar buat Set Log Group)
+bot.command('cekid', async (ctx) => {
+  const chat = ctx.chat;
+  const chatType = chat.type; // private, group, supergroup, channel
+  await ctx.reply(
+    `🆔 *INFO CHAT INI*\n\n` +
+    `Chat ID: \`${chat.id}\`\n` +
+    `Tipe: *${chatType}*\n\n` +
+    (chatType === 'group' || chatType === 'supergroup'
+      ? `👉 Copy ID di atas (termasuk tanda minus \`-\` kalau ada), lalu paste ke menu Admin → *Grup Log/Testi*.`
+      : `Ini chat pribadi. Kalau mau ID grup, jalankan /cekid di dalam grup targetnya.`),
+    { parse_mode: 'Markdown' }
+  );
+});
+
 // Fungsi helper untuk membersihkan pesan sebelumnya agar tidak nyangkut (khusus ganti dari foto QRIS ke teks)
 const safeClearAndSend = async (ctx, text, extra = {}) => {
   try {
@@ -110,6 +131,7 @@ const getMainMenu = (userId) => {
   if (Number(userId) === adminId && adminId !== 0) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
   }
+  buttons.push([Markup.button.callback('🎵 Lagu', 'user_lagu')]);
   return Markup.inlineKeyboard(buttons);
 };
 
@@ -119,6 +141,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
     [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🧾 Set Foto QRIS', 'admin_set_qris_photo')],
+    [Markup.button.callback('🎵 Set Lagu', 'admin_set_song')],
     [Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply_type')],
     [Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply'), Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname')],
     [Markup.button.callback('🔒 Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group')],
@@ -156,6 +179,20 @@ bot.action('user_check_id', async (ctx) => {
   ctx.replyWithMarkdown(`👤 *ID Telegram Anda:* \`${ctx.from.id}\``);
 });
 
+bot.action('user_lagu', async (ctx) => {
+  ctx.answerCbQuery();
+  db.get(`SELECT song FROM store WHERE id = 1`, async (err, store) => {
+    if (!store || !store.song) {
+      return ctx.reply('⚠️ Admin belum mengatur lagu.');
+    }
+    try {
+      await ctx.replyWithAudio(store.song, { caption: '🎵 Ini dia lagunya, selamat menikmati!' });
+    } catch (e) {
+      ctx.reply('⚠️ Gagal mengirim lagu, coba lagi nanti.');
+    }
+  });
+});
+
 bot.action('user_faq', async (ctx) => {
   ctx.answerCbQuery();
   const faqText = `📖 *CARA BELANJA DI TOKO KAMI*\n\n` +
@@ -184,8 +221,7 @@ bot.action('user_live_stock', async (ctx) => {
   });
 });
 
-bot.action('user_referral', async (ctx) => {
-  ctx.answerCbQuery();
+const sendReferral = async (ctx) => {
   const userId = ctx.from.id;
   db.get(`SELECT COUNT(user_id) as total_downline FROM users WHERE upline_id = ?`, [userId], async (err, row) => {
     const botInfo = await ctx.telegram.getMe();
@@ -195,7 +231,9 @@ bot.action('user_referral', async (ctx) => {
       `👥 Total teman diundang: *${row ? row.total_downline : 0} orang*`;
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
   });
-});
+};
+bot.action('user_referral', async (ctx) => { ctx.answerCbQuery(); await sendReferral(ctx); });
+bot.command('referral', sendReferral);
 
 bot.action('user_search_prod', async (ctx) => {
   ctx.answerCbQuery();
@@ -203,8 +241,7 @@ bot.action('user_search_prod', async (ctx) => {
   await safeClearAndSend(ctx, `🔍 *PENCARIAN PRODUK*\n\nSilakan ketik kata kunci nama produk yang dicari:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]]));
 });
 
-bot.action('user_my_orders', async (ctx) => {
-  ctx.answerCbQuery();
+const sendMyOrders = async (ctx) => {
   const userId = ctx.from.id;
   db.all(`SELECT o.*, p.name as prod_name FROM orders o JOIN products p ON o.product_id = p.id WHERE o.user_id = ? ORDER BY o.id DESC LIMIT 5`, [userId], async (err, rows) => {
     if (!rows || rows.length === 0) {
@@ -216,10 +253,11 @@ bot.action('user_my_orders', async (ctx) => {
     });
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
   });
-});
+};
+bot.action('user_my_orders', async (ctx) => { ctx.answerCbQuery(); await sendMyOrders(ctx); });
+bot.command('pesanan', sendMyOrders);
 
-bot.action('user_contact', async (ctx) => {
-  ctx.answerCbQuery();
+const sendContact = async (ctx) => {
   db.get(`SELECT admin_uname FROM store WHERE id = 1`, async (err, store) => {
     const uname = (store && store.admin_uname) ? store.admin_uname.replace('@', '') : '';
     if (uname) {
@@ -228,10 +266,12 @@ bot.action('user_contact', async (ctx) => {
       await safeClearAndSend(ctx, `⚠️ Admin belum mengatur Username CS.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     }
   });
-});
+};
+bot.action('user_contact', async (ctx) => { ctx.answerCbQuery(); await sendContact(ctx); });
+bot.command('cs', sendContact);
 
 // KATALOG PRODUK
-bot.action('user_catalog', async (ctx) => {
+const sendCatalog = async (ctx) => {
   const query = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`;
   db.all(query, async (err, products) => {
     if (!products || products.length === 0) {
@@ -244,7 +284,9 @@ bot.action('user_catalog', async (ctx) => {
     buttons.push([Markup.button.callback('🔙 Menu Utama', 'main_menu')]);
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
   });
-});
+};
+bot.action('user_catalog', sendCatalog);
+bot.command('katalog', sendCatalog);
 
 bot.action(/^buy_(.+)$/, async (ctx) => {
   const prodId = ctx.match[1];
@@ -323,7 +365,8 @@ bot.action(/^pay_(.+)_(.+)$/, async (ctx) => {
 
 // ADMIN APPROVE / REJECT PEMBAYARAN
 bot.action(/^approve_(.+)$/, async (ctx) => {
-  if (Number(ctx.from.id) !== getAdminId()) return;
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
   const orderId = ctx.match[1];
 
   db.get(`SELECT o.*, p.name as product_name FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
@@ -345,7 +388,15 @@ bot.action(/^approve_(.+)$/, async (ctx) => {
       db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
         if (store && store.log_group_id) {
           const testiText = `🎉 *TRANSAKSI SUKSES (QRIS)*\n\n🧾 *ID:* #${order.id}\n📦 *Produk:* ${order.product_name}\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}`;
-          bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
+          const notifyFail = (e) => {
+            console.log('Gagal kirim testimoni ke grup:', e.description || e.message);
+            bot.telegram.sendMessage(adminId, `⚠️ Gagal kirim testimoni ke grup (ID: \`${store.log_group_id}\`).\n\nError: ${e.description || e.message}\n\nCoba cek lagi ID grup pakai /cekid di dalam grupnya, dan pastikan bot ini sudah jadi member (kalau perlu, admin) di grup tersebut.`, { parse_mode: 'Markdown' }).catch(() => {});
+          };
+          if (order.proof) {
+            bot.telegram.sendPhoto(store.log_group_id, order.proof, { caption: testiText, parse_mode: 'Markdown' }).catch(notifyFail);
+          } else {
+            bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(notifyFail);
+          }
         }
       });
     });
@@ -367,10 +418,12 @@ bot.action(/^reject_(.+)$/, async (ctx) => {
 });
 
 // DASHBOARD ADMIN & ACTION HANDLERS
-bot.action('admin_dashboard', async (ctx) => {
+const sendAdminDashboard = async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   await safeClearAndSend(ctx, '⚙️ *DASHBOARD ADMIN TOKO*', getAdminMenu());
-});
+};
+bot.action('admin_dashboard', sendAdminDashboard);
+bot.command('admin', sendAdminDashboard);
 
 bot.action('admin_stats', async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
@@ -404,6 +457,12 @@ bot.action('admin_set_qris_photo', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'SET_QRIS_PHOTO' };
   ctx.reply('Kirimkan foto QRIS toko (dari Dana/OVO/Gopay/M-Banking/dll) yang akan ditampilkan ke buyer saat checkout:');
+});
+
+bot.action('admin_set_song', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_SONG' };
+  ctx.reply('🎵 Kirimkan file *audio/lagu* (bukan voice note) yang mau dipasang di tombol Lagu:', { parse_mode: 'Markdown' });
 });
 
 bot.action('admin_set_uname', (ctx) => {
@@ -513,6 +572,17 @@ bot.action(/^delar_(.+)$/, (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   db.run(`DELETE FROM auto_reply WHERE keyword = ?`, [ctx.match[1]]);
   ctx.reply('✅ Auto-reply berhasil dihapus!');
+});
+
+// UPLOAD LAGU (ADMIN)
+bot.on('audio', async (ctx) => {
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId || !userState[adminId] || userState[adminId].step !== 'SET_SONG') return;
+
+  const audioId = ctx.message.audio.file_id;
+  db.run(`UPDATE store SET song = ? WHERE id = 1`, [audioId]);
+  delete userState[adminId];
+  ctx.reply('✅ Lagu berhasil dipasang! Tombol 🎵 Lagu di menu utama sekarang aktif.');
 });
 
 bot.on('photo', async (ctx) => {
@@ -721,5 +791,32 @@ bot.on('text', async (ctx) => {
   }
 });
 
-bot.launch();
+// SET COMMAND MENU (tombol "/" di sebelah kolom chat)
+const setupCommandMenu = async () => {
+  try {
+    await bot.telegram.setMyCommands([
+      { command: 'start', description: '🏠 Buka Menu Utama' },
+      { command: 'katalog', description: '🛒 Lihat Katalog Produk' },
+      { command: 'pesanan', description: '📦 Cek Riwayat Pesanan' },
+      { command: 'referral', description: '🔗 Link Referral Saya' },
+      { command: 'cs', description: '📞 Hubungi Customer Service' }
+    ]);
+
+    const adminId = getAdminId();
+    if (adminId) {
+      await bot.telegram.setMyCommands([
+        { command: 'start', description: '🏠 Buka Menu Utama' },
+        { command: 'katalog', description: '🛒 Lihat Katalog Produk' },
+        { command: 'pesanan', description: '📦 Cek Riwayat Pesanan' },
+        { command: 'referral', description: '🔗 Link Referral Saya' },
+        { command: 'cs', description: '📞 Hubungi Customer Service' },
+        { command: 'admin', description: '⚙️ Dashboard Admin' }
+      ], { scope: { type: 'chat', chat_id: adminId } });
+    }
+  } catch (e) {
+    console.log('Gagal set command menu:', e.message);
+  }
+};
+
+bot.launch().then(setupCommandMenu);
 console.log('Bot Telegram Running - QRIS Manual + Admin Approval...');
