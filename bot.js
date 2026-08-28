@@ -54,7 +54,16 @@ db.serialize(() => {
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS stock_items (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, content TEXT, status TEXT DEFAULT 'AVAILABLE')`);
   db.run(`CREATE TABLE IF NOT EXISTS vouchers (code TEXT PRIMARY KEY, discount INTEGER, quota INTEGER)`);
-  db.run(`CREATE TABLE IF NOT EXISTS auto_reply (keyword TEXT PRIMARY KEY, reply TEXT)`);
+  
+  // TABEL AUTO-REPLY DIPERBARUI (MENDUKUNG MEDIA & BUTTON)
+  db.run(`CREATE TABLE IF NOT EXISTS auto_reply (
+    keyword TEXT PRIMARY KEY, 
+    reply_type TEXT DEFAULT 'text',
+    content TEXT,
+    file_id TEXT,
+    btn_label TEXT,
+    btn_url TEXT
+  )`);
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
@@ -195,7 +204,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('💳 Metode Bayar', 'admin_set_payment')],
     [Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store'), Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo')],
-    [Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply'), Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply')],
+    [Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply_type'), Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply')],
     [Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname'), Markup.button.callback('🔒 Wajib Join', 'admin_set_channel')],
     [Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group'), Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher')],
     [Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher'), Markup.button.callback('👥 Top Referral', 'admin_top_ref')],
@@ -460,17 +469,30 @@ bot.action('admin_set_header_photo', (ctx) => {
   ctx.reply('🖼️ Kirim foto baru untuk dijadikan Header / Banner Toko:');
 });
 
-bot.action('admin_autoreply', (ctx) => {
+// PENGATURAN AUTO-REPLY DENGAN OPSI MEDIA & BUTTON
+bot.action('admin_autoreply_type', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
-  userState[getAdminId()] = { step: 'ADD_AUTOREPLY_KEY' };
-  ctx.reply('🤖 *AUTO-REPLY*\n\nKetik kata kunci yang ingin dideteksi (contoh: *lokasi* atau *garansi*):', { parse_mode: 'Markdown' });
+  ctx.reply('🤖 *TAMBAH AUTO-REPLY*\n\nPilih jenis balasan otomatis yang ingin dibuat:', Markup.inlineKeyboard([
+    [Markup.button.callback('📝 Teks Biasa', 'set_reply_text')],
+    [Markup.button.callback('🖼️ Foto / Gambar', 'set_reply_photo')],
+    [Markup.button.callback('🎥 Video', 'set_reply_video')],
+    [Markup.button.callback('📁 Dokumen / File', 'set_reply_document')],
+    [Markup.button.callback('🔗 Teks + Tombol Link', 'set_reply_button')]
+  ]));
+});
+
+bot.action(/^set_reply_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const type = ctx.match[1];
+  userState[getAdminId()] = { step: 'ADD_AUTOREPLY_KEY', type: type };
+  ctx.reply('Ketik kata kunci (keyword) yang ingin dideteksi (contoh: *lokasi* / *rek*):', { parse_mode: 'Markdown' });
 });
 
 bot.action('admin_del_autoreply', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   db.all(`SELECT * FROM auto_reply`, (err, rows) => {
     if (!rows || rows.length === 0) return ctx.reply('Tidak ada data auto-reply.');
-    const buttons = rows.map(r => [Markup.button.callback(`🗑️ ${r.keyword}`, `delreply_${r.keyword}`)]);
+    const buttons = rows.map(r => [Markup.button.callback(`🗑️ ${r.keyword} (${r.reply_type})`, `delreply_${r.keyword}`)]);
     ctx.reply('Pilih kata kunci auto-reply yang ingin dihapus:', Markup.inlineKeyboard(buttons));
   });
 });
@@ -544,32 +566,51 @@ bot.action('admin_bc_button', (ctx) => {
   ctx.reply('Ketik TEKS pesan broadcast:');
 });
 
-// HANDLER FOTO
-bot.on('photo', (ctx) => {
+// HANDLER FOTO, VIDEO, DAN DOKUMEN MEDIA
+bot.on(['photo', 'video', 'document'], (ctx) => {
   const adminId = getAdminId();
   const state = userState[ctx.from.id];
-  const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+  if (!state) return;
 
-  if (state && state.step === 'WAITING_PROOF') {
-    db.run(`UPDATE orders SET proof = ?, status = 'PROSES' WHERE id = ?`, [photoId, state.orderId]);
-    delete userState[ctx.from.id];
-    ctx.reply('✅ Bukti pembayaran diterima! Menunggu konfirmasi Admin.');
-    
-    const adminButtons = Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `app_${state.orderId}`), Markup.button.callback('❌ Reject', `rej_${state.orderId}`)]]);
-    const proofText = `🔔 *BUKTI PEMBAYARAN MASUK!*\n\n🧾 *Order ID:* #${state.orderId}\n👤 *User:* ${ctx.from.username ? '@' + ctx.from.username : ctx.from.first_name}`;
-    if (adminId !== 0) bot.telegram.sendPhoto(adminId, photoId, { caption: proofText, parse_mode: 'Markdown', ...adminButtons });
-  } else if (state && state.step === 'SET_QRIS' && Number(ctx.from.id) === adminId) {
-    db.run(`UPDATE store SET qris = ? WHERE id = 1`, [photoId]);
+  // AUTO REPLY MEDIA BY ADMIN
+  if (Number(ctx.from.id) === adminId && state.step === 'ADD_AUTOREPLY_MEDIA') {
+    let fileId = '';
+    if (ctx.message.photo) fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+    else if (ctx.message.video) fileId = ctx.message.video.file_id;
+    else if (ctx.message.document) fileId = ctx.message.document.file_id;
+
+    const captionText = ctx.message.caption || '';
+    db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply_type, content, file_id) VALUES (?, ?, ?, ?)`, 
+      [state.keyword, state.type, captionText, fileId]);
     delete userState[adminId];
-    ctx.reply('✅ Foto QRIS disimpan!');
-  } else if (state && state.step === 'SET_HEADER_PHOTO' && Number(ctx.from.id) === adminId) {
-    db.run(`UPDATE store SET photo = ? WHERE id = 1`, [photoId]);
-    delete userState[adminId];
-    ctx.reply('✅ Foto Header / Banner toko berhasil diperbarui!');
-  } else if (state && state.step === 'ADD_PROD_PHOTO' && Number(ctx.from.id) === adminId) {
-    db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, ?)`, [state.name, state.price, photoId]);
-    delete userState[adminId];
-    ctx.reply('✅ Produk ditambahkan!');
+    ctx.reply(`✅ Auto-Reply *${state.type.toUpperCase()}* untuk kata kunci *${state.keyword}* berhasil disimpan!`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  // FOTO PROOF / ADMIN PROD
+  if (ctx.message.photo) {
+    const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+    if (state.step === 'WAITING_PROOF') {
+      db.run(`UPDATE orders SET proof = ?, status = 'PROSES' WHERE id = ?`, [photoId, state.orderId]);
+      delete userState[ctx.from.id];
+      ctx.reply('✅ Bukti pembayaran diterima! Menunggu konfirmasi Admin.');
+      
+      const adminButtons = Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `app_${state.orderId}`), Markup.button.callback('❌ Reject', `rej_${state.orderId}`)]]);
+      const proofText = `🔔 *BUKTI PEMBAYARAN MASUK!*\n\n🧾 *Order ID:* #${state.orderId}\n👤 *User:* ${ctx.from.username ? '@' + ctx.from.username : ctx.from.first_name}`;
+      if (adminId !== 0) bot.telegram.sendPhoto(adminId, photoId, { caption: proofText, parse_mode: 'Markdown', ...adminButtons });
+    } else if (state.step === 'SET_QRIS' && Number(ctx.from.id) === adminId) {
+      db.run(`UPDATE store SET qris = ? WHERE id = 1`, [photoId]);
+      delete userState[adminId];
+      ctx.reply('✅ Foto QRIS disimpan!');
+    } else if (state.step === 'SET_HEADER_PHOTO' && Number(ctx.from.id) === adminId) {
+      db.run(`UPDATE store SET photo = ? WHERE id = 1`, [photoId]);
+      delete userState[adminId];
+      ctx.reply('✅ Foto Header / Banner toko berhasil diperbarui!');
+    } else if (state.step === 'ADD_PROD_PHOTO' && Number(ctx.from.id) === adminId) {
+      db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, ?)`, [state.name, state.price, photoId]);
+      delete userState[adminId];
+      ctx.reply('✅ Produk ditambahkan!');
+    }
   }
 });
 
@@ -578,12 +619,22 @@ bot.on('text', (ctx) => {
   const adminId = getAdminId();
   const state = userState[ctx.from.id];
 
-  // PENGECEKAN AUTO-REPLY DARI CHAT PRIVATE (USER)
+  // PENGECEKAN AUTO-REPLY UNTUK CHAT PRIVATE (USER)
   if (ctx.chat.type === 'private' && !state) {
     const userText = ctx.message.text.trim().toLowerCase();
-    db.get(`SELECT reply FROM auto_reply WHERE ? LIKE '%' || keyword || '%'`, [userText], (err, row) => {
+    db.get(`SELECT * FROM auto_reply WHERE ? LIKE '%' || keyword || '%'`, [userText], (err, row) => {
       if (row) {
-        ctx.reply(row.reply, { parse_mode: 'Markdown' });
+        if (row.reply_type === 'text') {
+          ctx.reply(row.content, { parse_mode: 'Markdown' });
+        } else if (row.reply_type === 'photo') {
+          ctx.replyWithPhoto(row.file_id, { caption: row.content || '', parse_mode: 'Markdown' });
+        } else if (row.reply_type === 'video') {
+          ctx.replyWithVideo(row.file_id, { caption: row.content || '', parse_mode: 'Markdown' });
+        } else if (row.reply_type === 'document') {
+          ctx.replyWithDocument(row.file_id, { caption: row.content || '', parse_mode: 'Markdown' });
+        } else if (row.reply_type === 'button') {
+          ctx.reply(row.content, Markup.inlineKeyboard([[Markup.button.url(row.btn_label, row.btn_url)]]));
+        }
       }
     });
   }
@@ -637,12 +688,32 @@ bot.on('text', (ctx) => {
 
   if (Number(ctx.from.id) === adminId) {
     if (state.step === 'ADD_AUTOREPLY_KEY') {
-      userState[adminId] = { step: 'ADD_AUTOREPLY_VAL', keyword: ctx.message.text.trim().toLowerCase() };
-      ctx.reply('Ketik teks balasan otomatis untuk kata kunci tersebut:');
-    } else if (state.step === 'ADD_AUTOREPLY_VAL') {
-      db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply) VALUES (?, ?)`, [state.keyword, ctx.message.text]);
+      const keyword = ctx.message.text.trim().toLowerCase();
+      if (['photo', 'video', 'document'].includes(state.type)) {
+        userState[adminId] = { step: 'ADD_AUTOREPLY_MEDIA', keyword: keyword, type: state.type };
+        ctx.reply(`Silakan kirimkan file *${state.type.toUpperCase()}* yang ingin dijadikan balasan (opsional tambahkan Caption):`, { parse_mode: 'Markdown' });
+      } else if (state.type === 'text') {
+        userState[adminId] = { step: 'ADD_AUTOREPLY_VAL_TEXT', keyword: keyword };
+        ctx.reply('Ketik teks balasan otomatis untuk kata kunci tersebut:');
+      } else if (state.type === 'button') {
+        userState[adminId] = { step: 'ADD_AUTOREPLY_BTN_TEXT', keyword: keyword };
+        ctx.reply('Ketik teks pesan pendamping tombol:');
+      }
+    } else if (state.step === 'ADD_AUTOREPLY_VAL_TEXT') {
+      db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply_type, content) VALUES (?, 'text', ?)`, [state.keyword, ctx.message.text]);
       delete userState[adminId];
-      ctx.reply(`✅ Auto-reply untuk kata kunci *${state.keyword}* berhasil disimpan!`, { parse_mode: 'Markdown' });
+      ctx.reply(`✅ Auto-reply teks untuk kata kunci *${state.keyword}* berhasil disimpan!`, { parse_mode: 'Markdown' });
+    } else if (state.step === 'ADD_AUTOREPLY_BTN_TEXT') {
+      userState[adminId] = { step: 'ADD_AUTOREPLY_BTN_LABEL', keyword: state.keyword, content: ctx.message.text };
+      ctx.reply('Ketik Nama Tombol (contoh: Kunjungi Web):');
+    } else if (state.step === 'ADD_AUTOREPLY_BTN_LABEL') {
+      userState[adminId] = { step: 'ADD_AUTOREPLY_BTN_URL', keyword: state.keyword, content: state.content, label: ctx.message.text };
+      ctx.reply('Ketik URL/Link Tombol (contoh: https://google.com):');
+    } else if (state.step === 'ADD_AUTOREPLY_BTN_URL') {
+      db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply_type, content, btn_label, btn_url) VALUES (?, 'button', ?, ?, ?)`, 
+        [state.keyword, state.content, state.label, ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply(`✅ Auto-reply Tombol untuk kata kunci *${state.keyword}* berhasil disimpan!`, { parse_mode: 'Markdown' });
     } else if (state.step === 'BC_BTN_TEXT') {
       userState[adminId] = { step: 'BC_BTN_LABEL', text: ctx.message.text };
       ctx.reply('Ketik TULISAN TOMBOL (contoh: Kunjungi Channel):');
