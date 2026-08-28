@@ -77,26 +77,16 @@ db.serialize(() => {
 
 const userState = {};
 
-const safeUpdateMainDisplay = async (ctx, text, extra = {}) => {
+// Fungsi helper untuk membersihkan pesan sebelumnya agar tidak nyangkut (khusus ganti dari foto QRIS ke teks)
+const safeClearAndSend = async (ctx, text, extra = {}) => {
   try {
-    if (ctx.callbackQuery && ctx.callbackQuery.message) {
-      const msg = ctx.callbackQuery.message;
-      if (extra.photo) {
-        try { await ctx.deleteMessage(); } catch (e) {}
-        return await ctx.replyWithPhoto(extra.photo, { caption: text, parse_mode: 'Markdown', ...extra });
-      } else if (msg.photo) {
-        await ctx.telegram.editMessageCaption(ctx.chat.id, msg.message_id, undefined, text, { parse_mode: 'Markdown', ...extra });
-      } else {
-        await ctx.telegram.editMessageText(ctx.chat.id, msg.message_id, undefined, text, { parse_mode: 'Markdown', ...extra });
-      }
-      return;
-    }
+    await ctx.deleteMessage();
   } catch (e) {}
-  
+
   if (extra.photo) {
-    await ctx.replyWithPhoto(extra.photo, { caption: text, parse_mode: 'Markdown', ...extra });
+    return await ctx.replyWithPhoto(extra.photo, { caption: text, parse_mode: 'Markdown', ...extra });
   } else {
-    await ctx.replyWithMarkdown(text, extra);
+    return await ctx.replyWithMarkdown(text, extra);
   }
 };
 
@@ -157,9 +147,9 @@ bot.action('main_menu', async (ctx) => {
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     const text = `🏬 *${store.name}*\n\n${store.desc}`;
     if (store && store.photo) {
-      await safeUpdateMainDisplay(ctx, text, { photo: store.photo, ...getMainMenu(ctx.from.id) });
+      await safeClearAndSend(ctx, text, { photo: store.photo, ...getMainMenu(ctx.from.id) });
     } else {
-      await safeUpdateMainDisplay(ctx, text, getMainMenu(ctx.from.id));
+      await safeClearAndSend(ctx, text, getMainMenu(ctx.from.id));
     }
   });
 });
@@ -175,10 +165,10 @@ bot.action('user_faq', async (ctx) => {
     `1️⃣ Pilih menu *Katalog Produk*.\n` +
     `2️⃣ Pilih produk yang ingin dibeli.\n` +
     `3️⃣ Klik *Bayar QRIS Otomatis*.\n` +
-    `4️⃣ Download/Scan QRIS sesuai Nominal Pas.\n` +
+    `4️⃣ Download QRIS lalu scan sesuai Nominal Pas.\n` +
     `5️⃣ Klik tombol *Cek Status Pembayaran*.\n` +
     `6️⃣ Produk/akun akan langsung terkirim otomatis!`;
-  await safeUpdateMainDisplay(ctx, faqText, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+  await safeClearAndSend(ctx, faqText, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
 });
 
 bot.action('user_live_stock', async (ctx) => {
@@ -186,14 +176,14 @@ bot.action('user_live_stock', async (ctx) => {
   const query = `SELECT p.name, p.price, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`;
   db.all(query, async (err, rows) => {
     if (!rows || rows.length === 0) {
-      return await safeUpdateMainDisplay(ctx, `📊 *STATUS STOK REAL-TIME*\n\nBelum ada produk tersedia.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+      return await safeClearAndSend(ctx, `📊 *STATUS STOK REAL-TIME*\n\nBelum ada produk tersedia.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     }
     let text = `📊 *STATUS STOK REAL-TIME*\n\n`;
     rows.forEach(r => {
       const statusEmoji = r.stock_count > 0 ? '🟢 Tersedia' : '🔴 Habis';
       text += `• *${r.name}* - Rp${r.price.toLocaleString('id-ID')}\n  Status: ${statusEmoji} (*${r.stock_count} item*)\n\n`;
     });
-    await safeUpdateMainDisplay(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🛒 Beli Sekarang', 'user_catalog'), Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🛒 Beli Sekarang', 'user_catalog'), Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
   });
 });
 
@@ -206,14 +196,14 @@ bot.action('user_referral', async (ctx) => {
     const text = `🔗 *PROGRAM REFERRAL*\n\n` +
       `Bagikan link di bawah ini ke teman Anda:\n\`${refLink}\`\n\n` +
       `👥 Total teman diundang: *${row ? row.total_downline : 0} orang*`;
-    await safeUpdateMainDisplay(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
   });
 });
 
 bot.action('user_search_prod', async (ctx) => {
   ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'SEARCH_PRODUCT' };
-  await safeUpdateMainDisplay(ctx, `🔍 *PENCARIAN PRODUK*\n\nSilakan ketik kata kunci nama produk yang dicari:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]]));
+  await safeClearAndSend(ctx, `🔍 *PENCARIAN PRODUK*\n\nSilakan ketik kata kunci nama produk yang dicari:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]]));
 });
 
 bot.action('user_my_orders', async (ctx) => {
@@ -221,13 +211,13 @@ bot.action('user_my_orders', async (ctx) => {
   const userId = ctx.from.id;
   db.all(`SELECT o.*, p.name as prod_name FROM orders o JOIN products p ON o.product_id = p.id WHERE o.user_id = ? ORDER BY o.id DESC LIMIT 5`, [userId], async (err, rows) => {
     if (!rows || rows.length === 0) {
-      return await safeUpdateMainDisplay(ctx, `📦 *RIWAYAT PESANAN*\n\nAnda belum pernah transaksi.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+      return await safeClearAndSend(ctx, `📦 *RIWAYAT PESANAN*\n\nAnda belum pernah transaksi.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     }
     let text = `📦 *5 TRANSAKSI TERAKHIR ANDA:*\n\n`;
     rows.forEach(r => {
       text += `• *Order #${r.id}* - ${r.prod_name}\n  Status: *${r.status}* (${r.created_at})\n\n`;
     });
-    await safeUpdateMainDisplay(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
   });
 });
 
@@ -236,26 +226,26 @@ bot.action('user_contact', async (ctx) => {
   db.get(`SELECT admin_uname FROM store WHERE id = 1`, async (err, store) => {
     const uname = (store && store.admin_uname) ? store.admin_uname.replace('@', '') : '';
     if (uname) {
-    await safeUpdateMainDisplay(ctx, `Silakan hubungi Customer Service kami:`, Markup.inlineKeyboard([[Markup.button.url('💬 Chat Admin', `https://t.me/${uname}`)], [Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+      await safeClearAndSend(ctx, `Silakan hubungi Customer Service kami:`, Markup.inlineKeyboard([[Markup.button.url('💬 Chat Admin', `https://t.me/${uname}`)], [Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     } else {
-      await safeUpdateMainDisplay(ctx, `⚠️ Admin belum mengatur Username CS.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+      await safeClearAndSend(ctx, `⚠️ Admin belum mengatur Username CS.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     }
   });
 });
 
-// KATALOG PRODUK DENGAN FOTO JIKA ADA
+// KATALOG PRODUK
 bot.action('user_catalog', async (ctx) => {
   const query = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`;
   db.all(query, async (err, products) => {
     if (!products || products.length === 0) {
-      return await safeUpdateMainDisplay(ctx, '⚠️ Katalog produk kosong.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+      return await safeClearAndSend(ctx, '⚠️ Katalog produk kosong.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     }
     let text = `🛒 *KATALOG PRODUK*\n\nPilih produk di bawah ini:`;
     let buttons = products.map(prod => [
       Markup.button.callback(`${prod.name} (Rp${prod.price.toLocaleString('id-ID')}) [Stok: ${prod.stock_count}]`, `buy_${prod.id}`)
     ]);
     buttons.push([Markup.button.callback('🔙 Menu Utama', 'main_menu')]);
-    await safeUpdateMainDisplay(ctx, text, Markup.inlineKeyboard(buttons));
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
   });
 });
 
@@ -279,10 +269,10 @@ bot.action(/^buy_(.+)$/, async (ctx) => {
           await ctx.deleteMessage();
           return await ctx.replyWithPhoto(prod.photo, { caption: captionText, parse_mode: 'Markdown', ...buttons });
         } catch (e) {
-          await safeUpdateMainDisplay(ctx, captionText, buttons);
+          await safeClearAndSend(ctx, captionText, buttons);
         }
       } else {
-        await safeUpdateMainDisplay(ctx, captionText, buttons);
+        await safeClearAndSend(ctx, captionText, buttons);
       }
     });
   });
@@ -291,10 +281,10 @@ bot.action(/^buy_(.+)$/, async (ctx) => {
 bot.action(/^vouc_(.+)$/, async (ctx) => {
   const prodId = ctx.match[1];
   userState[ctx.from.id] = { step: 'INPUT_VOUCHER', prodId: prodId };
-  await safeUpdateMainDisplay(ctx, `🎟️ *MASUKKAN KODE VOUCHER*\n\nKetik kode voucher diskon di chat:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `buy_${prodId}`)]]));
+  await safeClearAndSend(ctx, `🎟️ *MASUKKAN KODE VOUCHER*\n\nKetik kode voucher diskon di chat:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `buy_${prodId}`)]]));
 });
 
-// GENERATE QRIS OTOMATIS & TOMBOL DOWNLOAD QRIS
+// GENERATE QRIS & TOMBOL DOWNLOAD GAMBAR QRIS
 bot.action(/^pay_(.+)_(.+)$/, async (ctx) => {
   const prodId = ctx.match[1];
   const discount = parseInt(ctx.match[2]) || 0;
@@ -311,19 +301,23 @@ bot.action(/^pay_(.+)_(.+)$/, async (ctx) => {
       const orderId = this.lastID;
       
       const saweriaUrl = `https://saweria.co/${SAWERIA_USERNAME}?amount=${finalPrice}&msg=ORDER${orderId}`;
-      const qrisApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(saweriaUrl)}`;
+      const qrisApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(saweriaUrl)}`;
 
       const detailText = `🧾 *PESANAN #${orderId}*\n\n` +
         `📦 *Produk:* ${prod.name}\n` +
         `💰 *Total Pas:* *Rp${finalPrice.toLocaleString('id-ID')}*\n` +
         `⚠️ *PENTING:* Harus bayar sesuai *NOMINAL PAS* (termasuk kode unik) agar otomatis terverifikasi!\n\n` +
-        `📲 Scan QRIS di atas atau Klik tombol *📥 DOWNLOAD GAMBAR QRIS* di bawah:`;
+        `📲 Scan QRIS di atas atau klik tombol *📥 Download QRIS* untuk menyimpan gambar ke galeri:`;
 
       const buttons = Markup.inlineKeyboard([
-        [Markup.button.url('📥 DOWNLOAD GAMBAR QRIS', qrisApiUrl)],
+        [Markup.button.url('📥 Download QRIS', qrisApiUrl)],
         [Markup.button.callback('🔄 Cek Status Pembayaran', `check_pay_${orderId}`)],
         [Markup.button.callback('❌ Batal Pesanan', 'user_catalog')]
       ]);
+
+      try {
+        await ctx.deleteMessage();
+      } catch (e) {}
 
       await ctx.replyWithPhoto(qrisApiUrl, { caption: detailText, parse_mode: 'Markdown', ...buttons });
     });
@@ -373,7 +367,7 @@ bot.action(/^check_pay_(.+)$/, async (ctx) => {
 // DASHBOARD ADMIN & ACTION HANDLERS
 bot.action('admin_dashboard', async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
-  await safeUpdateMainDisplay(ctx, '⚙️ *DASHBOARD ADMIN TOKO*', getAdminMenu());
+  await safeClearAndSend(ctx, '⚙️ *DASHBOARD ADMIN TOKO*', getAdminMenu());
 });
 
 bot.action('admin_stats', async (ctx) => {
@@ -455,7 +449,6 @@ bot.action('admin_bc_button', (ctx) => {
   ctx.reply('Masukkan teks pesan broadcast (+ tombol link):');
 });
 
-// FITUR TAMBAH PRODUK DENGAN FOTO
 bot.action('admin_add_prod', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'ADD_PROD_NAME' };
@@ -514,7 +507,6 @@ bot.action(/^delar_(.+)$/, (ctx) => {
   ctx.reply('✅ Auto-reply berhasil dihapus!');
 });
 
-// PHOTO HANDLER UNTUK BANNER & FOTO PRODUK
 bot.on('photo', async (ctx) => {
   const adminId = getAdminId();
   if (Number(ctx.from.id) === adminId && userState[adminId]) {
@@ -535,7 +527,6 @@ bot.on('photo', async (ctx) => {
   }
 });
 
-// HANDLER TEXT ADMIN & USER
 bot.on('text', async (ctx) => {
   const adminId = getAdminId();
   const state = userState[ctx.from.id];
