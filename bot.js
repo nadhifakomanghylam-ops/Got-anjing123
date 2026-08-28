@@ -3,6 +3,8 @@ const { Telegraf, Markup } = require('telegraf');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
+const express = require('express');
+const { verifyCasakuSignature } = require('./casaku');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -114,6 +116,16 @@ db.serialize(() => {
     admin_msg_id INTEGER PRIMARY KEY,
     buyer_id INTEGER,
     buyer_name TEXT
+  )`);
+
+  // Log transactionId dari webhook Casaku yang sudah diproses, supaya retry
+  // otomatis dari Casaku (sampai 3x kalau timeout) tidak diproses dua kali.
+  db.run(`CREATE TABLE IF NOT EXISTS casaku_webhook_log (
+    transaction_id TEXT PRIMARY KEY,
+    matched_type TEXT,
+    matched_id INTEGER,
+    amount INTEGER,
+    received_at TEXT
   )`);
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
@@ -636,23 +648,36 @@ bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
   });
 });
 
+// Approve top up secara terprogram (dipanggil dari tombol admin ATAU dari webhook Casaku).
+// Mengembalikan Promise<{ ok: boolean, reason?: string, topup?: object }>
+const approveTopupById = (topupId) => {
+  return new Promise((resolve) => {
+    db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
+      if (!topup) return resolve({ ok: false, reason: 'NOT_FOUND' });
+      if (topup.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', topup });
+
+      db.run(`UPDATE topups SET status = 'APPROVED' WHERE id = ?`, [topupId]);
+      db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [topup.amount, topup.user_id]);
+
+      bot.telegram.sendMessage(topup.user_id, `🎉 *TOP UP SALDO DIKONFIRMASI!*\n\nSaldo sebesar Rp${topup.amount.toLocaleString('id-ID')} telah ditambahkan ke akun Anda.`, { parse_mode: 'Markdown' }).catch(() => {});
+      resolve({ ok: true, topup });
+    });
+  });
+};
+
 // ADMIN APPROVE / REJECT TOP UP
 bot.action(/^topupapprove_(.+)$/, async (ctx) => {
   const adminId = getAdminId();
   if (Number(ctx.from.id) !== adminId) return;
   const topupId = ctx.match[1];
 
-  db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
-    if (!topup) return ctx.answerCbQuery('Data top up tidak ditemukan.', { show_alert: true });
-    if (topup.status === 'APPROVED') return ctx.answerCbQuery('Top up ini sudah di-approve!', { show_alert: true });
-
-    db.run(`UPDATE topups SET status = 'APPROVED' WHERE id = ?`, [topupId]);
-    db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [topup.amount, topup.user_id]);
-
-    bot.telegram.sendMessage(topup.user_id, `🎉 *TOP UP SALDO DIKONFIRMASI!*\n\nSaldo sebesar Rp${topup.amount.toLocaleString('id-ID')} telah ditambahkan ke akun Anda.`, { parse_mode: 'Markdown' }).catch(() => {});
-    ctx.answerCbQuery('✅ Top up di-approve.', { show_alert: true });
-    ctx.editMessageCaption ? ctx.editMessageCaption(`✅ APPROVED - Top Up #${topupId}`).catch(() => {}) : null;
-  });
+  const result = await approveTopupById(topupId);
+  if (!result.ok) {
+    const msg = result.reason === 'ALREADY_APPROVED' ? 'Top up ini sudah di-approve!' : 'Data top up tidak ditemukan.';
+    return ctx.answerCbQuery(msg, { show_alert: true });
+  }
+  ctx.answerCbQuery('✅ Top up di-approve.', { show_alert: true });
+  ctx.editMessageCaption ? ctx.editMessageCaption(`✅ APPROVED - Top Up #${topupId}`).catch(() => {}) : null;
 });
 
 bot.action(/^topupreject_(.+)$/, async (ctx) => {
@@ -669,45 +694,61 @@ bot.action(/^topupreject_(.+)$/, async (ctx) => {
   });
 });
 
+// Approve order secara terprogram (dipanggil dari tombol admin ATAU dari webhook Casaku).
+// Mengembalikan Promise<{ ok: boolean, reason?: string, order?: object }>
+const approveOrderById = (orderId) => {
+  return new Promise((resolve) => {
+    db.get(`SELECT o.*, p.name as product_name, p.photo as prod_photo FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
+      if (!order) return resolve({ ok: false, reason: 'NOT_FOUND' });
+      if (order.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', order });
+
+      db.all(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT ?`, [order.product_id, order.quantity], (err, stocks) => {
+        if (!stocks || stocks.length < order.quantity) {
+          return resolve({ ok: false, reason: 'OUT_OF_STOCK', order, available: stocks ? stocks.length : 0 });
+        }
+
+        const stockIds = stocks.map(s => s.id);
+        const stockContents = stocks.map(s => s.content).join('\n---\n');
+
+        db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
+        db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
+
+        bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI!*\n\nDetail Akun/Produk (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\``, { parse_mode: 'Markdown' }).catch(() => {});
+
+        db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
+          if (store && store.log_group_id) {
+            const testiText = `🎉 *TESTIMONI TRANSAKSI SUKSES*\n\n🧾 *ID:* #${order.id}\n📦 *Produk:* ${order.product_name} (${order.quantity}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}`;
+
+            const photoToSend = order.proof || order.prod_photo;
+            if (photoToSend) {
+              bot.telegram.sendPhoto(store.log_group_id, photoToSend, { caption: testiText, parse_mode: 'Markdown' }).catch(() => {});
+            } else {
+              bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
+            }
+          }
+        });
+
+        resolve({ ok: true, order });
+      });
+    });
+  });
+};
+
 // ADMIN APPROVE PEMBAYARAN & KIRIM TESTI BER-FOTO
 bot.action(/^approve_(.+)$/, async (ctx) => {
   const adminId = getAdminId();
   if (Number(ctx.from.id) !== adminId) return;
   const orderId = ctx.match[1];
 
-  db.get(`SELECT o.*, p.name as product_name, p.photo as prod_photo FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
-    if (!order) return ctx.answerCbQuery('Pesanan tidak ditemukan.', { show_alert: true });
-    if (order.status === 'APPROVED') return ctx.answerCbQuery('Pesanan ini sudah di-approve!', { show_alert: true });
-
-    db.all(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT ?`, [order.product_id, order.quantity], (err, stocks) => {
-      if (!stocks || stocks.length < order.quantity) {
-        return ctx.answerCbQuery(`⚠️ Stok produk kurang (${stocks ? stocks.length : 0}/${order.quantity})!`, { show_alert: true });
-      }
-
-      const stockIds = stocks.map(s => s.id);
-      const stockContents = stocks.map(s => s.content).join('\n---\n');
-
-      db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
-      db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
-
-      bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI ADMIN!*\n\nDetail Akun/Produk (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\``, { parse_mode: 'Markdown' }).catch(() => {});
-      ctx.answerCbQuery('✅ Pesanan di-approve & produk dikirim.', { show_alert: true });
-      ctx.editMessageCaption ? ctx.editMessageCaption(`✅ APPROVED - Order #${orderId}`).catch(() => {}) : null;
-
-      db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
-        if (store && store.log_group_id) {
-          const testiText = `🎉 *TESTIMONI TRANSAKSI SUKSES*\n\n🧾 *ID:* #${order.id}\n📦 *Produk:* ${order.product_name} (${order.quantity}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}`;
-          
-          const photoToSend = order.proof || order.prod_photo;
-          if (photoToSend) {
-            bot.telegram.sendPhoto(store.log_group_id, photoToSend, { caption: testiText, parse_mode: 'Markdown' }).catch(() => {});
-          } else {
-            bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
-          }
-        }
-      });
-    });
-  });
+  const result = await approveOrderById(orderId);
+  if (!result.ok) {
+    let msg = 'Pesanan tidak ditemukan.';
+    if (result.reason === 'ALREADY_APPROVED') msg = 'Pesanan ini sudah di-approve!';
+    if (result.reason === 'OUT_OF_STOCK') msg = `⚠️ Stok produk kurang (${result.available}/${result.order.quantity})!`;
+    return ctx.answerCbQuery(msg, { show_alert: true });
+  }
+  ctx.answerCbQuery('✅ Pesanan di-approve & produk dikirim.', { show_alert: true });
+  ctx.editMessageCaption ? ctx.editMessageCaption(`✅ APPROVED - Order #${orderId}`).catch(() => {}) : null;
 });
 
 bot.action(/^reject_(.+)$/, async (ctx) => {
@@ -1303,6 +1344,100 @@ const setupCommandMenu = async () => {
     console.log('Gagal set command menu:', e.message);
   }
 };
+
+// =====================================================
+// WEBHOOK SERVER - CASAKU (auto-approve pembayaran QRIS)
+// =====================================================
+// Casaku memonitor QRIS statis toko lalu mengirim POST ke sini setiap ada
+// mutasi masuk. Body ditandatangani HMAC-SHA256 pakai CASAKU_WEBHOOK_SECRET,
+// dikirim di header X-Casaku-Signature. Kita cocokkan `amount` dari payload
+// dengan order/top-up berstatus PENDING yang nominalnya sama persis
+// (nominal sudah dibuat unik lewat kode 3 digit acak saat checkout).
+const app = express();
+
+// express.raw() dipakai khusus di route ini supaya kita punya raw body
+// (Buffer) untuk verifikasi HMAC - JSON.parse baru dilakukan manual setelahnya.
+app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
+  const secret = process.env.CASAKU_WEBHOOK_SECRET;
+  const signature = req.headers['x-casaku-signature'];
+  const rawBody = req.body; // Buffer
+
+  if (!secret) {
+    console.log('⚠️ CASAKU_WEBHOOK_SECRET belum diatur di environment variable.');
+    return res.status(500).send('Webhook secret not configured');
+  }
+
+  if (!verifyCasakuSignature(rawBody, signature, secret)) {
+    console.log('⚠️ Webhook Casaku ditolak: signature tidak valid.');
+    return res.status(401).send('Invalid signature');
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(rawBody.toString('utf8'));
+  } catch (e) {
+    return res.status(400).send('Invalid JSON');
+  }
+
+  // Balas 200 duluan secepatnya (syarat Casaku: respons <10 detik),
+  // sisanya diproses async.
+  res.status(200).send('OK');
+
+  const { transactionId, amount, status } = payload;
+  if (status !== 'paid' || !transactionId || !amount) return;
+
+  // Cegah proses dobel kalau Casaku retry webhook yang sama.
+  db.get(`SELECT * FROM casaku_webhook_log WHERE transaction_id = ?`, [transactionId], async (err, existing) => {
+    if (existing) {
+      console.log(`ℹ️ Webhook Casaku ${transactionId} sudah pernah diproses, dilewati.`);
+      return;
+    }
+
+    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    let matchedType = null;
+    let matchedId = null;
+
+    // 1) Coba cocokkan ke ORDER (pembelian produk) PENDING dengan nominal sama.
+    db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND amount = ? ORDER BY created_at ASC LIMIT 1`, [amount], async (err, order) => {
+      if (order) {
+        const result = await approveOrderById(order.id);
+        if (result.ok) {
+          matchedType = 'order';
+          matchedId = order.id;
+          console.log(`✅ Webhook Casaku: order #${order.id} auto-approved (Rp${amount}).`);
+        }
+        db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`,
+          [transactionId, matchedType, matchedId, amount, now]);
+        return;
+      }
+
+      // 2) Kalau tidak ada order yang cocok, coba cocokkan ke TOP UP PENDING.
+      db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND total_amount = ? ORDER BY created_at ASC LIMIT 1`, [amount], async (err, topup) => {
+        if (topup) {
+          const result = await approveTopupById(topup.id);
+          if (result.ok) {
+            matchedType = 'topup';
+            matchedId = topup.id;
+            console.log(`✅ Webhook Casaku: top up #${topup.id} auto-approved (Rp${amount}).`);
+          }
+        } else {
+          console.log(`⚠️ Webhook Casaku: tidak ada order/top-up PENDING dengan nominal Rp${amount}.`);
+          const adminId = getAdminId();
+          if (adminId) {
+            bot.telegram.sendMessage(adminId, `⚠️ *Pembayaran Masuk Tanpa Pasangan Order*\n\nDana masuk Rp${amount.toLocaleString('id-ID')} terdeteksi via Casaku, tapi tidak ada order/top-up PENDING dengan nominal itu.\n\n🧾 Transaction ID: \`${transactionId}\``, { parse_mode: 'Markdown' }).catch(() => {});
+          }
+        }
+        db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`,
+          [transactionId, matchedType, matchedId, amount, now]);
+      });
+    });
+  });
+});
+
+app.get('/', (req, res) => res.send('Bot is running.'));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🌐 Webhook server listening on port ${PORT}`));
 
 bot.launch().then(setupCommandMenu);
 console.log('Bot Telegram Running Full Edition...');
