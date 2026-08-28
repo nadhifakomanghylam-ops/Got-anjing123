@@ -57,8 +57,11 @@ db.serialize(() => {
   
   db.run(`CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
-    upline_id INTEGER DEFAULT 0
+    upline_id INTEGER DEFAULT 0,
+    balance INTEGER DEFAULT 0
   )`);
+  // Migration: tambah kolom 'balance' kalau tabel users lama belum punya
+  db.run(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS visitors (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
@@ -80,6 +83,18 @@ db.serialize(() => {
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS stock_items (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, content TEXT, status TEXT DEFAULT 'AVAILABLE')`);
   db.run(`CREATE TABLE IF NOT EXISTS vouchers (code TEXT PRIMARY KEY, discount INTEGER, quota INTEGER)`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS topups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    amount INTEGER,
+    unique_code INTEGER,
+    total_amount INTEGER,
+    status TEXT DEFAULT 'PENDING',
+    proof TEXT,
+    created_at TEXT
+  )`);
   
   db.run(`CREATE TABLE IF NOT EXISTS auto_reply (
     keyword TEXT PRIMARY KEY, 
@@ -151,6 +166,7 @@ const getMainMenu = (userId) => {
   const adminId = getAdminId();
   const buttons = [
     [Markup.button.callback('🛒 Katalog Produk', 'user_catalog'), Markup.button.callback('🔍 Cari Produk', 'user_search_prod')],
+    [Markup.button.callback('💳 Cek Saldo', 'user_balance'), Markup.button.callback('💰 Top Up Saldo', 'user_topup')],
     [Markup.button.callback('📦 Cek Pesanan', 'user_my_orders'), Markup.button.callback('📊 Cek Stok Live', 'user_live_stock')],
     [Markup.button.callback('🔗 Program Referral', 'user_referral'), Markup.button.callback('📖 Cara Belanja', 'user_faq')],
     [Markup.button.callback('📞 Customer Service', 'user_contact'), Markup.button.callback('🆔 Cek ID', 'user_check_id')]
@@ -325,6 +341,7 @@ bot.action(/^buy_(.+)$/, async (ctx) => {
       const buttons = Markup.inlineKeyboard([
         [Markup.button.callback('🎟️ Pakai Kode Voucher', `vouc_${prodId}`)],
         [Markup.button.callback('💳 Bayar via QRIS', `pay_${prodId}_0`)],
+        [Markup.button.callback('💰 Bayar Pakai Saldo', `paysaldo_${prodId}`)],
         [Markup.button.callback('🔙 Kembali ke Katalog', 'user_catalog')]
       ]);
 
@@ -387,6 +404,100 @@ bot.action(/^pay_(.+)_(.+)$/, async (ctx) => {
           await ctx.replyWithPhoto(store.qris, { caption: detailText, parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal Pesanan', 'user_catalog')]]) });
         });
     });
+  });
+});
+
+// CEK SALDO
+bot.action('user_balance', async (ctx) => {
+  ctx.answerCbQuery();
+  db.get(`SELECT balance FROM users WHERE user_id = ?`, [ctx.from.id], async (err, row) => {
+    const balance = row ? (row.balance || 0) : 0;
+    await safeClearAndSend(ctx, `💳 *SALDO ANDA*\n\nSaldo saat ini: *Rp${balance.toLocaleString('id-ID')}*`,
+      Markup.inlineKeyboard([[Markup.button.callback('💰 Top Up Saldo', 'user_topup')], [Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+  });
+});
+
+// MULAI TOP UP SALDO
+bot.action('user_topup', async (ctx) => {
+  ctx.answerCbQuery();
+  userState[ctx.from.id] = { step: 'TOPUP_AMOUNT' };
+  await safeClearAndSend(ctx, `💰 *TOP UP SALDO*\n\nMasukkan nominal top up yang diinginkan (minimal Rp10.000, angka saja):`,
+    Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'main_menu')]]));
+});
+
+// BAYAR PRODUK PAKAI SALDO (langsung terkirim tanpa approve admin)
+bot.action(/^paysaldo_(.+)$/, async (ctx) => {
+  const prodId = ctx.match[1];
+  const userId = ctx.from.id;
+
+  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
+    if (!prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
+
+    db.get(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT 1`, [prodId], (err, stock) => {
+      if (!stock) return ctx.answerCbQuery(`⚠️ Stok ${prod.name} habis!`, { show_alert: true });
+
+      db.get(`SELECT balance FROM users WHERE user_id = ?`, [userId], (err, row) => {
+        const balance = row ? (row.balance || 0) : 0;
+        if (balance < prod.price) {
+          return ctx.answerCbQuery(`⚠️ Saldo tidak cukup!\nSaldo Anda: Rp${balance.toLocaleString('id-ID')}\nHarga: Rp${prod.price.toLocaleString('id-ID')}`, { show_alert: true });
+        }
+
+        const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+        const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+
+        db.run(`UPDATE users SET balance = balance - ? WHERE user_id = ?`, [prod.price, userId]);
+        db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id = ?`, [stock.id]);
+        db.run(`INSERT INTO orders (user_id, username, product_id, status, discount, amount, created_at) VALUES (?, ?, ?, 'APPROVED', 0, ?, ?)`,
+          [userId, username, prodId, prod.price, now], async function (err) {
+            const orderId = this.lastID;
+            const sisaSaldo = balance - prod.price;
+
+            await safeClearAndSend(ctx,
+              `🎉 *PEMBELIAN BERHASIL (SALDO)!*\n\nDetail Akun/Produk (#${orderId}):\n\`${stock.content}\`\n\n💳 Sisa saldo: Rp${sisaSaldo.toLocaleString('id-ID')}`,
+              Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+
+            db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
+              if (store && store.log_group_id) {
+                const testiText = `🎉 *TRANSAKSI SUKSES (SALDO)*\n\n🧾 *ID:* #${orderId}\n📦 *Produk:* ${prod.name}\n💰 *Total:* Rp${prod.price.toLocaleString('id-ID')}\n👤 *Buyer:* ${username}`;
+                bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
+              }
+            });
+          });
+      });
+    });
+  });
+});
+
+// ADMIN APPROVE / REJECT TOP UP SALDO
+bot.action(/^topupapprove_(.+)$/, async (ctx) => {
+  const adminId = getAdminId();
+  if (Number(ctx.from.id) !== adminId) return;
+  const topupId = ctx.match[1];
+
+  db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
+    if (!topup) return ctx.answerCbQuery('Data top up tidak ditemukan.', { show_alert: true });
+    if (topup.status === 'APPROVED') return ctx.answerCbQuery('Top up ini sudah di-approve!', { show_alert: true });
+
+    db.run(`UPDATE topups SET status = 'APPROVED' WHERE id = ?`, [topupId]);
+    db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [topup.amount, topup.user_id]);
+
+    bot.telegram.sendMessage(topup.user_id, `🎉 *TOP UP SALDO DIKONFIRMASI!*\n\nSaldo sebesar Rp${topup.amount.toLocaleString('id-ID')} sudah ditambahkan ke akun Anda.`, { parse_mode: 'Markdown' }).catch(() => {});
+    ctx.answerCbQuery('✅ Top up di-approve & saldo sudah ditambahkan.', { show_alert: true });
+    ctx.editMessageCaption ? ctx.editMessageCaption(`✅ APPROVED - Top Up #${topupId}`).catch(() => {}) : null;
+  });
+});
+
+bot.action(/^topupreject_(.+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const topupId = ctx.match[1];
+
+  db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
+    if (!topup) return ctx.answerCbQuery('Data top up tidak ditemukan.', { show_alert: true });
+
+    db.run(`UPDATE topups SET status = 'REJECTED' WHERE id = ?`, [topupId]);
+    bot.telegram.sendMessage(topup.user_id, `❌ *TOP UP DITOLAK*\n\nBukti transfer untuk top up #${topupId} tidak valid. Hubungi Customer Service jika ini kesalahan.`, { parse_mode: 'Markdown' }).catch(() => {});
+    ctx.answerCbQuery('Top up ditolak.', { show_alert: true });
+    ctx.editMessageCaption ? ctx.editMessageCaption(`❌ REJECTED - Top Up #${topupId}`).catch(() => {}) : null;
   });
 });
 
@@ -639,8 +750,37 @@ bot.on('photo', async (ctx) => {
     return;
   }
 
-  // BUYER UPLOAD BUKTI TRANSFER
+  // BUYER UPLOAD BUKTI TRANSFER TOP UP SALDO
   const state = userState[userId];
+  if (state && state.step === 'UPLOAD_TOPUP_PROOF') {
+    const topupId = state.topupId;
+    delete userState[userId];
+
+    db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
+      if (!topup) return ctx.reply('⚠️ Data top up tidak ditemukan.');
+
+      db.run(`UPDATE topups SET proof = ?, status = 'PENDING_REVIEW' WHERE id = ?`, [photoId, topupId]);
+      ctx.replyWithMarkdown('✅ Bukti transfer top up diterima! Mohon tunggu, admin akan segera memverifikasi.');
+
+      if (adminId) {
+        const reviewText = `💰 *KONFIRMASI TOP UP SALDO #${topupId}*\n\n` +
+          `💵 *Nominal:* Rp${topup.amount.toLocaleString('id-ID')}\n` +
+          `💳 *Total Transfer:* Rp${topup.total_amount.toLocaleString('id-ID')}\n` +
+          `👤 *User:* ${topup.username} (ID: ${topup.user_id})`;
+        bot.telegram.sendPhoto(adminId, photoId, {
+          caption: reviewText,
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[
+            Markup.button.callback('✅ Approve', `topupapprove_${topupId}`),
+            Markup.button.callback('❌ Reject', `topupreject_${topupId}`)
+          ]])
+        }).catch(() => {});
+      }
+    });
+    return;
+  }
+
+  // BUYER UPLOAD BUKTI TRANSFER
   if (state && state.step === 'UPLOAD_PROOF') {
     const orderId = state.orderId;
     delete userState[userId];
@@ -755,6 +895,41 @@ bot.on('text', async (ctx) => {
         delete userState[ctx.from.id];
         ctx.reply(`🎉 *VOUCHER AKTIF:* Potongan Rp${vouc.discount.toLocaleString('id-ID')}`, Markup.inlineKeyboard([[Markup.button.callback('💳 Lanjut Bayar', `pay_${state.prodId}_${vouc.discount}`)]]));
       }
+    });
+    return;
+  }
+
+  if (state.step === 'TOPUP_AMOUNT') {
+    const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
+    if (!amount || amount < 10000) {
+      return ctx.reply('⚠️ Nominal tidak valid. Minimal top up Rp10.000, masukkan angka saja:');
+    }
+
+    db.get(`SELECT qris FROM store WHERE id = 1`, (err, store) => {
+      if (!store || !store.qris) {
+        delete userState[ctx.from.id];
+        return ctx.reply('⚠️ Admin belum mengatur foto QRIS toko. Hubungi Admin.');
+      }
+
+      const uniqueCode = Math.floor(Math.random() * 900) + 100;
+      const totalAmount = amount + uniqueCode;
+      const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+      const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
+
+      db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`,
+        [ctx.from.id, username, amount, uniqueCode, totalAmount, now], async function (err) {
+          const topupId = this.lastID;
+          userState[ctx.from.id] = { step: 'UPLOAD_TOPUP_PROOF', topupId };
+
+          const detailText = `💰 *TOP UP SALDO #${topupId}*\n\n` +
+            `💵 *Nominal Top Up:* Rp${amount.toLocaleString('id-ID')}\n` +
+            `💳 *Total Transfer Pas:* *Rp${totalAmount.toLocaleString('id-ID')}*\n` +
+            `⚠️ *PENTING:* Transfer harus sesuai *NOMINAL PAS* di atas (termasuk kode unik).\n\n` +
+            `📲 Scan QRIS di atas untuk membayar.\n` +
+            `📸 Setelah bayar, *kirim/upload screenshot bukti transfer* langsung ke chat ini untuk diverifikasi admin.`;
+
+          await ctx.replyWithPhoto(store.qris, { caption: detailText, parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'main_menu')]]) });
+        });
     });
     return;
   }
