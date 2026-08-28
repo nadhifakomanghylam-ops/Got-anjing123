@@ -3,7 +3,7 @@ const axios = require('axios');
 async function createCasakuPayment(orderId, amount) {
   try {
     const response = await axios.post(
-      process.env.CASAKU_API_URL || 'https://api.casaku.id/v1/transaction/create',
+      process.env.CASAKU_API_URL || 'https://cashify.id/api/v1/order/create',
       {
         merchant_id: process.env.CASAKU_MERCHANT_ID,
         merchant_ref: orderId,
@@ -18,7 +18,7 @@ async function createCasakuPayment(orderId, amount) {
     );
     return response.data;
   } catch (error) {
-    console.error('Error Casaku:', error.response?.data || error.message);
+    console.error('Error Payment:', error.response?.data || error.message);
     return null;
   }
 }
