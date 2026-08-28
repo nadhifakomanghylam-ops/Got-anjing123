@@ -54,6 +54,7 @@ db.serialize(() => {
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS stock_items (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, content TEXT, status TEXT DEFAULT 'AVAILABLE')`);
   db.run(`CREATE TABLE IF NOT EXISTS vouchers (code TEXT PRIMARY KEY, discount INTEGER, quota INTEGER)`);
+  db.run(`CREATE TABLE IF NOT EXISTS auto_reply (keyword TEXT PRIMARY KEY, reply TEXT)`);
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
@@ -194,6 +195,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('💳 Metode Bayar', 'admin_set_payment')],
     [Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store'), Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo')],
+    [Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply'), Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply')],
     [Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname'), Markup.button.callback('🔒 Wajib Join', 'admin_set_channel')],
     [Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group'), Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher')],
     [Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher'), Markup.button.callback('👥 Top Referral', 'admin_top_ref')],
@@ -458,6 +460,27 @@ bot.action('admin_set_header_photo', (ctx) => {
   ctx.reply('🖼️ Kirim foto baru untuk dijadikan Header / Banner Toko:');
 });
 
+bot.action('admin_autoreply', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_AUTOREPLY_KEY' };
+  ctx.reply('🤖 *AUTO-REPLY*\n\nKetik kata kunci yang ingin dideteksi (contoh: *lokasi* atau *garansi*):', { parse_mode: 'Markdown' });
+});
+
+bot.action('admin_del_autoreply', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM auto_reply`, (err, rows) => {
+    if (!rows || rows.length === 0) return ctx.reply('Tidak ada data auto-reply.');
+    const buttons = rows.map(r => [Markup.button.callback(`🗑️ ${r.keyword}`, `delreply_${r.keyword}`)]);
+    ctx.reply('Pilih kata kunci auto-reply yang ingin dihapus:', Markup.inlineKeyboard(buttons));
+  });
+});
+
+bot.action(/^delreply_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.run(`DELETE FROM auto_reply WHERE keyword = ?`, [ctx.match[1]]);
+  ctx.reply('✅ Auto-reply berhasil dihapus!');
+});
+
 bot.action('admin_set_uname', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'SET_UNAME' };
@@ -554,6 +577,17 @@ bot.on('photo', (ctx) => {
 bot.on('text', (ctx) => {
   const adminId = getAdminId();
   const state = userState[ctx.from.id];
+
+  // PENGECEKAN AUTO-REPLY DARI CHAT PRIVATE (USER)
+  if (ctx.chat.type === 'private' && !state) {
+    const userText = ctx.message.text.trim().toLowerCase();
+    db.get(`SELECT reply FROM auto_reply WHERE ? LIKE '%' || keyword || '%'`, [userText], (err, row) => {
+      if (row) {
+        ctx.reply(row.reply, { parse_mode: 'Markdown' });
+      }
+    });
+  }
+
   if (!state) return;
 
   if (state.step === 'SEARCH_PRODUCT') {
@@ -602,7 +636,14 @@ bot.on('text', (ctx) => {
   }
 
   if (Number(ctx.from.id) === adminId) {
-    if (state.step === 'BC_BTN_TEXT') {
+    if (state.step === 'ADD_AUTOREPLY_KEY') {
+      userState[adminId] = { step: 'ADD_AUTOREPLY_VAL', keyword: ctx.message.text.trim().toLowerCase() };
+      ctx.reply('Ketik teks balasan otomatis untuk kata kunci tersebut:');
+    } else if (state.step === 'ADD_AUTOREPLY_VAL') {
+      db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply) VALUES (?, ?)`, [state.keyword, ctx.message.text]);
+      delete userState[adminId];
+      ctx.reply(`✅ Auto-reply untuk kata kunci *${state.keyword}* berhasil disimpan!`, { parse_mode: 'Markdown' });
+    } else if (state.step === 'BC_BTN_TEXT') {
       userState[adminId] = { step: 'BC_BTN_LABEL', text: ctx.message.text };
       ctx.reply('Ketik TULISAN TOMBOL (contoh: Kunjungi Channel):');
     } else if (state.step === 'BC_BTN_LABEL') {
