@@ -44,7 +44,7 @@ db.serialize(() => {
     joined_at TEXT
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS groups (group_id INTEGER PRIMARY KEY)`);
-  db.run(`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, photo TEXT)`);
+  db.run(`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, photo TEXT DEFAULT '')`);
   db.run(`CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT, 
     user_id INTEGER, 
@@ -175,7 +175,7 @@ bot.action('user_faq', async (ctx) => {
     `1️⃣ Pilih menu *Katalog Produk*.\n` +
     `2️⃣ Pilih produk yang ingin dibeli.\n` +
     `3️⃣ Klik *Bayar QRIS Otomatis*.\n` +
-    `4️⃣ Scan & Bayar QRIS sesuai Nominal Pas.\n` +
+    `4️⃣ Download/Scan QRIS sesuai Nominal Pas.\n` +
     `5️⃣ Klik tombol *Cek Status Pembayaran*.\n` +
     `6️⃣ Produk/akun akan langsung terkirim otomatis!`;
   await safeUpdateMainDisplay(ctx, faqText, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
@@ -236,14 +236,14 @@ bot.action('user_contact', async (ctx) => {
   db.get(`SELECT admin_uname FROM store WHERE id = 1`, async (err, store) => {
     const uname = (store && store.admin_uname) ? store.admin_uname.replace('@', '') : '';
     if (uname) {
-      await safeUpdateMainDisplay(ctx, `Silakan hubungi Customer Service kami:`, Markup.inlineKeyboard([[Markup.button.url('💬 Chat Admin', `https://t.me/${uname}`)], [Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+    await safeUpdateMainDisplay(ctx, `Silakan hubungi Customer Service kami:`, Markup.inlineKeyboard([[Markup.button.url('💬 Chat Admin', `https://t.me/${uname}`)], [Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     } else {
       await safeUpdateMainDisplay(ctx, `⚠️ Admin belum mengatur Username CS.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     }
   });
 });
 
-// KATALOG & SAWERIA QRIS AUTOMATIC
+// KATALOG PRODUK DENGAN FOTO JIKA ADA
 bot.action('user_catalog', async (ctx) => {
   const query = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`;
   db.all(query, async (err, products) => {
@@ -271,7 +271,19 @@ bot.action(/^buy_(.+)$/, async (ctx) => {
         [Markup.button.callback('💳 Bayar QRIS Otomatis', `pay_${prodId}_0`)],
         [Markup.button.callback('🔙 Kembali ke Katalog', 'user_catalog')]
       ]);
-      await safeUpdateMainDisplay(ctx, `🛒 *PEMBELIAN: ${prod.name}*\n💰 *Harga:* Rp${prod.price.toLocaleString('id-ID')}\n📦 *Stok Tersedia:* ${res.stock_count}`, buttons);
+
+      const captionText = `🛒 *PEMBELIAN: ${prod.name}*\n💰 *Harga:* Rp${prod.price.toLocaleString('id-ID')}\n📦 *Stok Tersedia:* ${res.stock_count}`;
+
+      if (prod.photo && prod.photo !== '') {
+        try {
+          await ctx.deleteMessage();
+          return await ctx.replyWithPhoto(prod.photo, { caption: captionText, parse_mode: 'Markdown', ...buttons });
+        } catch (e) {
+          await safeUpdateMainDisplay(ctx, captionText, buttons);
+        }
+      } else {
+        await safeUpdateMainDisplay(ctx, captionText, buttons);
+      }
     });
   });
 });
@@ -282,7 +294,7 @@ bot.action(/^vouc_(.+)$/, async (ctx) => {
   await safeUpdateMainDisplay(ctx, `🎟️ *MASUKKAN KODE VOUCHER*\n\nKetik kode voucher diskon di chat:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `buy_${prodId}`)]]));
 });
 
-// GENERATE QRIS OTOMATIS
+// GENERATE QRIS OTOMATIS & TOMBOL DOWNLOAD QRIS
 bot.action(/^pay_(.+)_(.+)$/, async (ctx) => {
   const prodId = ctx.match[1];
   const discount = parseInt(ctx.match[2]) || 0;
@@ -299,16 +311,16 @@ bot.action(/^pay_(.+)_(.+)$/, async (ctx) => {
       const orderId = this.lastID;
       
       const saweriaUrl = `https://saweria.co/${SAWERIA_USERNAME}?amount=${finalPrice}&msg=ORDER${orderId}`;
-      const qrisApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(saweriaUrl)}`;
+      const qrisApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(saweriaUrl)}`;
 
       const detailText = `🧾 *PESANAN #${orderId}*\n\n` +
         `📦 *Produk:* ${prod.name}\n` +
         `💰 *Total Pas:* *Rp${finalPrice.toLocaleString('id-ID')}*\n` +
         `⚠️ *PENTING:* Harus bayar sesuai *NOMINAL PAS* (termasuk kode unik) agar otomatis terverifikasi!\n\n` +
-        `📲 Scan QRIS di atas atau Klik tombol *BAYAR SEKARANG* di bawah:`;
+        `📲 Scan QRIS di atas atau Klik tombol *📥 DOWNLOAD GAMBAR QRIS* di bawah:`;
 
       const buttons = Markup.inlineKeyboard([
-        [Markup.button.url('💳 BAYAR SEKARANG (QRIS)', saweriaUrl)],
+        [Markup.button.url('📥 DOWNLOAD GAMBAR QRIS', qrisApiUrl)],
         [Markup.button.callback('🔄 Cek Status Pembayaran', `check_pay_${orderId}`)],
         [Markup.button.callback('❌ Batal Pesanan', 'user_catalog')]
       ]);
@@ -350,10 +362,10 @@ bot.action(/^check_pay_(.+)$/, async (ctx) => {
           });
         });
       } else {
-        ctx.answerCbQuery('❌ Pembayaran belum terdeteksi. Silakan coba 10-20 detik lagi setelah bayar.', { show_alert: true });
+        ctx.answerCbQuery('❌ Pembayaran belum terdeteksi. Pastikan nominal transfer sudah pas dan coba lagi beberapa saat.', { show_alert: true });
       }
     } catch (e) {
-      ctx.answerCbQuery('⚠️ Pembayaran belum masuk / Gagal terhubung ke Saweria.', { show_alert: true });
+      ctx.answerCbQuery('⚠️ Gagal terhubung ke Saweria. Periksa kembali SAWERIA_STREAM_KEY di Railway/ENV.', { show_alert: true });
     }
   });
 });
@@ -443,6 +455,7 @@ bot.action('admin_bc_button', (ctx) => {
   ctx.reply('Masukkan teks pesan broadcast (+ tombol link):');
 });
 
+// FITUR TAMBAH PRODUK DENGAN FOTO
 bot.action('admin_add_prod', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'ADD_PROD_NAME' };
@@ -501,24 +514,33 @@ bot.action(/^delar_(.+)$/, (ctx) => {
   ctx.reply('✅ Auto-reply berhasil dihapus!');
 });
 
-// PHOTO HANDLER FOR BANNER HEADER
+// PHOTO HANDLER UNTUK BANNER & FOTO PRODUK
 bot.on('photo', async (ctx) => {
   const adminId = getAdminId();
-  if (Number(ctx.from.id) === adminId && userState[adminId] && userState[adminId].step === 'SET_HEADER_PHOTO') {
+  if (Number(ctx.from.id) === adminId && userState[adminId]) {
     const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-    db.run(`UPDATE store SET photo = ? WHERE id = 1`, [photoId]);
-    delete userState[adminId];
-    ctx.reply('✅ Foto Banner Header Toko Berhasil Diganti!');
+    
+    if (userState[adminId].step === 'SET_HEADER_PHOTO') {
+      db.run(`UPDATE store SET photo = ? WHERE id = 1`, [photoId]);
+      delete userState[adminId];
+      return ctx.reply('✅ Foto Banner Header Toko Berhasil Diganti!');
+    }
+    
+    if (userState[adminId].step === 'ADD_PROD_PHOTO') {
+      const { name, price } = userState[adminId];
+      db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, ?)`, [name, price, photoId]);
+      delete userState[adminId];
+      return ctx.reply('✅ Produk baru dengan foto berhasil ditambahkan!');
+    }
   }
 });
 
-// HANDLER TEXT ADMIN & USER (FULL ENGINE)
+// HANDLER TEXT ADMIN & USER
 bot.on('text', async (ctx) => {
   const adminId = getAdminId();
   const state = userState[ctx.from.id];
 
   if (!state) {
-    // Check Auto Reply Keyword
     const textMsg = ctx.message.text.trim().toLowerCase();
     db.get(`SELECT * FROM auto_reply WHERE LOWER(keyword) = ?`, [textMsg], (err, ar) => {
       if (ar) {
@@ -639,9 +661,12 @@ bot.on('text', async (ctx) => {
     } else if (state.step === 'ADD_PROD_PRICE') {
       const price = parseInt(ctx.message.text.trim());
       if (isNaN(price)) return ctx.reply('⚠️ Masukkan angka yang valid!');
-      db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, '')`, [state.name, price]);
+      userState[adminId] = { step: 'ADD_PROD_PHOTO', name: state.name, price: price };
+      ctx.reply('📸 Kirim foto untuk produk ini (atau ketik *lewati* jika tidak pakai foto):', { parse_mode: 'Markdown' });
+    } else if (state.step === 'ADD_PROD_PHOTO' && ctx.message.text.toLowerCase() === 'lewati') {
+      db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, '')`, [state.name, state.price]);
       delete userState[adminId];
-      ctx.reply('✅ Produk berhasil ditambahkan!');
+      ctx.reply('✅ Produk berhasil ditambahkan tanpa foto!');
     } else if (state.step === 'ADD_STOCK_BULK') {
       const lines = ctx.message.text.split('\n').map(i => i.trim()).filter(i => i !== '');
       if (lines.length === 0) return ctx.reply('⚠️ Tidak ada stok terdeteksi.');
