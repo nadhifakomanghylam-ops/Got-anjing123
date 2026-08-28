@@ -4,7 +4,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const { verifyCasakuSignature } = require('./casaku');
+const { verifyCasakuSignature, generateDynamicQRIS } = require('./casaku');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -87,6 +87,8 @@ db.serialize(() => {
     created_at TEXT
   )`);
   db.run(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1`, () => {});
+  db.run(`ALTER TABLE orders ADD COLUMN casaku_transaction_id TEXT`, () => {});
+  db.run(`ALTER TABLE orders ADD COLUMN qris_expires_at TEXT`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS stock_items (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, content TEXT, status TEXT DEFAULT 'AVAILABLE')`);
   db.run(`CREATE TABLE IF NOT EXISTS vouchers (code TEXT PRIMARY KEY, discount INTEGER, quota INTEGER)`);
@@ -100,8 +102,12 @@ db.serialize(() => {
     total_amount INTEGER,
     status TEXT DEFAULT 'PENDING',
     proof TEXT,
-    created_at TEXT
+    created_at TEXT,
+    casaku_transaction_id TEXT,
+    qris_expires_at TEXT
   )`);
+  db.run(`ALTER TABLE topups ADD COLUMN casaku_transaction_id TEXT`, () => {});
+  db.run(`ALTER TABLE topups ADD COLUMN qris_expires_at TEXT`, () => {});
   
   db.run(`CREATE TABLE IF NOT EXISTS auto_reply (
     keyword TEXT PRIMARY KEY, 
@@ -446,31 +452,44 @@ bot.action('user_topup_custom', async (ctx) => {
     Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]));
 });
 
-const processTopUp = (ctx, amount) => {
-  db.get(`SELECT qris FROM store WHERE id = 1`, (err, store) => {
-    if (!store || !store.qris) {
-      return ctx.answerCbQuery('⚠️ Admin belum mengatur foto QRIS toko. Hubungi Admin.', { show_alert: true });
-    }
-    const uniqueCode = Math.floor(Math.random() * 900) + 100;
-    const totalAmount = amount + uniqueCode;
-    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+const processTopUp = async (ctx, amount) => {
+  if (!Number.isInteger(amount) || amount < 1000) {
+    return ctx.answerCbQuery('⚠️ Nominal minimal Rp1.000.', { show_alert: true });
+  }
+
+  try {
+    const qris = await generateDynamicQRIS(amount, `TOPUP`);
+    const now = new Date().toISOString();
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
 
-    db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?)`,
-      [ctx.from.id, username, amount, uniqueCode, totalAmount, now], async function (err) {
+    db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+      [ctx.from.id, username, amount, qris.uniqueCode, qris.totalAmount, now, qris.transactionId, qris.expiresAt], async function (err) {
+        if (err) {
+          console.error('Gagal menyimpan top up:', err.message);
+          return ctx.reply('⚠️ Gagal membuat invoice top up. Coba lagi.');
+        }
+
         const topupId = this.lastID;
         userState[ctx.from.id] = { step: 'UPLOAD_TOPUP_PROOF', topupId };
 
         const detailText = `💰 *INVOICE TOP UP SALDO #${topupId}*\n\n` +
           `💵 *Nominal Top Up:* Rp${amount.toLocaleString('id-ID')}\n` +
-          `💳 *Total Transfer Pas:* *Rp${totalAmount.toLocaleString('id-ID')}*\n` +
-          `⚠️ *PENTING:* Transfer harus sesuai *NOMINAL PAS* di atas (termasuk kode unik).\n\n` +
-          `📲 Scan QRIS di atas untuk membayar.\n` +
-          `📸 Setelah bayar, *kirim/upload screenshot bukti transfer* ke chat ini.`;
+          `💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n` +
+          `🧾 *Transaksi:* \`${qris.transactionId}\`\n` +
+          `⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n` +
+          `📲 Scan QRIS di atas.\n` +
+          `✅ Setelah pembayaran terdeteksi Casaku, saldo akan otomatis masuk.\n` +
+          `📸 Bukti pembayaran tetap boleh dikirim jika diperlukan.`;
 
-        await safeClearAndSend(ctx, detailText, { photo: store.qris, ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal Top Up', 'user_balance_menu')]]) });
+        await safeClearAndSend(ctx, detailText, {
+          photo: { source: qris.imageBuffer },
+          ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal Top Up', 'user_balance_menu')]])
+        });
       });
-  });
+  } catch (e) {
+    console.error('Casaku generate topup error:', e.message);
+    return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true });
+  }
 };
 
 // KATALOG PRODUK
@@ -558,39 +577,51 @@ bot.action(/^vouc_(.+)_(.+)$/, async (ctx) => {
 });
 
 // PEMBAYARAN QRIS
+// PEMBAYARAN QRIS DINAMIS CASAKU
 bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
   const prodId = ctx.match[1];
   const qty = parseInt(ctx.match[2]);
   const discount = parseInt(ctx.match[3]) || 0;
 
-  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
-    db.get(`SELECT qris FROM store WHERE id = 1`, (err, store) => {
-      if (!store || !store.qris) {
-        return ctx.answerCbQuery('⚠️ Admin belum mengatur foto QRIS toko. Hubungi Admin.', { show_alert: true });
-      }
+  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
+    if (err || !prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
 
-      const uniqueCode = Math.floor(Math.random() * 900) + 100;
-      const basePrice = Math.max(1000, (prod.price * qty) - discount);
-      const finalPrice = basePrice + uniqueCode;
-      const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-      const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+    const basePrice = Math.max(1000, (prod.price * qty) - discount);
+    const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
 
-      db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
-        [ctx.from.id, username, prodId, qty, discount, finalPrice, now], async function (err) {
+    try {
+      const qris = await generateDynamicQRIS(basePrice, `ORD`);
+      const now = new Date().toISOString();
+
+      db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
+        [ctx.from.id, username, prodId, qty, discount, qris.totalAmount, now, qris.transactionId, qris.expiresAt], async function (dbErr) {
+          if (dbErr) {
+            console.error('Gagal menyimpan order QRIS:', dbErr.message);
+            return ctx.reply('⚠️ Gagal membuat pesanan. Coba lagi.');
+          }
+
           const orderId = this.lastID;
-
           userState[ctx.from.id] = { step: 'UPLOAD_PROOF', orderId };
 
           const detailText = `🧾 *PESANAN #${orderId}*\n\n` +
             `📦 *Produk:* ${prod.name} (${qty}x)\n` +
-            `💰 *Total Pas:* *Rp${finalPrice.toLocaleString('id-ID')}*\n` +
-            `⚠️ *PENTING:* Transfer harus sesuai *NOMINAL PAS* di atas (termasuk kode unik).\n\n` +
-            `📲 Scan QRIS di atas untuk membayar.\n` +
-            `📸 Kirim/upload screenshot *bukti transfer* ke chat ini.`;
+            `💰 *Harga:* Rp${basePrice.toLocaleString('id-ID')}\n` +
+            `💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n` +
+            `🧾 *Transaksi:* \`${qris.transactionId}\`\n` +
+            `⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n` +
+            `📲 Scan QRIS dinamis di atas untuk membayar.\n` +
+            `✅ Pembayaran akan diproses otomatis oleh Casaku.\n` +
+            `📸 Bukti pembayaran tetap boleh dikirim jika diperlukan.`;
 
-          await safeClearAndSend(ctx, detailText, { photo: store.qris, ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal Pesanan', 'user_catalog')]]) });
+          await safeClearAndSend(ctx, detailText, {
+            photo: { source: qris.imageBuffer },
+            ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal Pesanan', 'user_catalog')]])
+          });
         });
-    });
+    } catch (e) {
+      console.error('Casaku generate order error:', e.message);
+      return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true });
+    }
   });
 });
 
@@ -1397,8 +1428,14 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
     let matchedType = null;
     let matchedId = null;
 
-    // 1) Coba cocokkan ke ORDER (pembelian produk) PENDING dengan nominal sama.
-    db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND amount = ? ORDER BY created_at ASC LIMIT 1`, [amount], async (err, order) => {
+    // 1) Untuk QRIS dinamis, transactionId adalah pasangan yang paling aman.
+    db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, orderByTrx) => {
+      // Fallback ke nominal untuk transaksi lama yang masih memakai QRIS statis.
+      const findOrder = (callback) => {
+        if (orderByTrx) return callback(orderByTrx);
+        db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacyOrder) => callback(legacyOrder));
+      };
+      findOrder(async (order) => {
       if (order) {
         const result = await approveOrderById(order.id);
         if (result.ok) {
@@ -1412,7 +1449,12 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
       }
 
       // 2) Kalau tidak ada order yang cocok, coba cocokkan ke TOP UP PENDING.
-      db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND total_amount = ? ORDER BY created_at ASC LIMIT 1`, [amount], async (err, topup) => {
+      db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, topupByTrx) => {
+        const findTopup = (callback) => {
+          if (topupByTrx) return callback(topupByTrx);
+          db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND total_amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacyTopup) => callback(legacyTopup));
+        };
+        findTopup(async (topup) => {
         if (topup) {
           const result = await approveTopupById(topup.id);
           if (result.ok) {
@@ -1431,6 +1473,8 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
           [transactionId, matchedType, matchedId, amount, now]);
       });
     });
+  });
+  });
   });
 });
 
