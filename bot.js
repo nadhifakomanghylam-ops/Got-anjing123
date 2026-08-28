@@ -65,6 +65,7 @@ db.serialize(() => {
   )`);
   db.run(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0`, () => {});
   db.run(`ALTER TABLE users ADD COLUMN tier TEXT DEFAULT 'Bronze'`, () => {});
+  db.run(`ALTER TABLE products ADD COLUMN note TEXT DEFAULT ''`, () => {});
 
   db.run(`CREATE TABLE IF NOT EXISTS visitors (
     user_id INTEGER PRIMARY KEY,
@@ -73,7 +74,7 @@ db.serialize(() => {
     joined_at TEXT
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS groups (group_id INTEGER PRIMARY KEY)`);
-  db.run(`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, photo TEXT DEFAULT '')`);
+  db.run(`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, photo TEXT DEFAULT '', note TEXT DEFAULT '')`);
   db.run(`CREATE TABLE IF NOT EXISTS orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT, 
     user_id INTEGER, 
@@ -432,8 +433,8 @@ bot.action('user_balance_menu', async (ctx) => {
       `Pilih nominal Top Up di bawah atau ketik nominal manual:`;
       
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard([
-      [Markup.button.callback('➕ Rp10.000', 'topup_amt_10000'), Markup.button.callback('➕ Rp20.000', 'topup_amt_20000')],
-      [Markup.button.callback('➕ Rp50.000', 'topup_amt_50000'), Markup.button.callback('➕ Rp100.000', 'topup_amt_100000')],
+      [Markup.button.callback('➕ Rp500', 'topup_amt_500'), Markup.button.callback('➕ Rp1.000', 'topup_amt_1000')],
+      [Markup.button.callback('➕ Rp5.000', 'topup_amt_5000'), Markup.button.callback('➕ Rp10.000', 'topup_amt_10000')],
       [Markup.button.callback('✍️ Nominal Custom (Manual)', 'user_topup_custom')],
       [Markup.button.callback('🔙 Kembali ke Menu Utama', 'main_menu')]
     ]));
@@ -448,13 +449,13 @@ bot.action(/^topup_amt_(.+)$/, async (ctx) => {
 bot.action('user_topup_custom', async (ctx) => {
   ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'TOPUP_AMOUNT' };
-  await safeClearAndSend(ctx, `💰 *TOP UP SALDO (CUSTOM)*\n\nMasukkan nominal top up yang diinginkan (minimal Rp10.000, angka saja):`,
+  await safeClearAndSend(ctx, `💰 *TOP UP SALDO (CUSTOM)*\n\nMasukkan nominal top up yang diinginkan (minimal Rp500, maksimal Rp10.000.000, angka saja):`,
     Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]));
 });
 
 const processTopUp = async (ctx, amount) => {
-  if (!Number.isInteger(amount) || amount < 1000) {
-    return ctx.answerCbQuery('⚠️ Nominal minimal Rp1.000.', { show_alert: true });
+  if (!Number.isInteger(amount) || amount < 500 || amount > 10000000) {
+    return ctx.answerCbQuery('⚠️ Nominal Top Up harus Rp500–Rp10.000.000.', { show_alert: true });
   }
 
   try {
@@ -664,7 +665,7 @@ bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
             const orderId = this.lastID;
 
             await safeClearAndSend(ctx,
-              `🎉 *PEMBELIAN BERHASIL (SALDO)!*\n\nDetail Akun/Produk (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\``,
+              `🎉 *PEMBELIAN BERHASIL (SALDO)!*\n\nDetail Akun/Produk (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${prod.note ? `📝 *CATATAN / ARAHAN:*\n${prod.note}` : ''}`,
               Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
 
             db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
@@ -729,7 +730,7 @@ bot.action(/^topupreject_(.+)$/, async (ctx) => {
 // Mengembalikan Promise<{ ok: boolean, reason?: string, order?: object }>
 const approveOrderById = (orderId) => {
   return new Promise((resolve) => {
-    db.get(`SELECT o.*, p.name as product_name, p.photo as prod_photo FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
+    db.get(`SELECT o.*, p.name as product_name, p.photo as prod_photo, p.note as product_note FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
       if (!order) return resolve({ ok: false, reason: 'NOT_FOUND' });
       if (order.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', order });
 
@@ -744,7 +745,7 @@ const approveOrderById = (orderId) => {
         db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
         db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
 
-        bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI!*\n\nDetail Akun/Produk (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\``, { parse_mode: 'Markdown' }).catch(() => {});
+        bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI!*\n\nDetail Akun/Produk (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${order.product_note ? `📝 *CATATAN / ARAHAN:*\n${order.product_note}` : ''}`, { parse_mode: 'Markdown' }).catch(() => {});
 
         db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
           if (store && store.log_group_id) {
@@ -1210,8 +1211,8 @@ bot.on('text', async (ctx) => {
 
   if (state.step === 'TOPUP_AMOUNT') {
     const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
-    if (!amount || amount < 10000) {
-      return ctx.reply('⚠️ Nominal tidak valid. Minimal top up Rp10.000, masukkan angka saja:');
+    if (!amount || amount < 500 || amount > 10000000) {
+      return ctx.reply('⚠️ Nominal tidak valid. Top Up minimal Rp500 dan maksimal Rp10.000, masukkan angka 500–10000000:');
     }
     delete userState[ctx.from.id];
     processTopUp(ctx, amount);
@@ -1343,8 +1344,24 @@ bot.on('text', async (ctx) => {
       });
       stmt.finalize();
 
-      delete userState[adminId];
-      ctx.reply(`✅ Berhasil menambahkan *${inserted} stok* secara massal!`);
+      // Setelah stok masuk, minta catatan/arahan produk secara TERPISAH.
+      // Isi catatan boleh panjang dan multiline; tidak akan dihitung sebagai stok.
+      userState[adminId] = { step: 'ADD_STOCK_NOTE', prodId: state.prodId, inserted };
+      ctx.reply(`✅ Berhasil menambahkan *${inserted} stok* secara massal!\n\n📝 Sekarang kirim *catatan/arahan untuk pembeli* produk ini.\n\nContoh:\nAmbil paket di menu\nLogin menggunakan akun yang dikirim\nJangan ubah password\n\nTeks boleh panjang dan boleh beberapa paragraf.\n\nKetik *lewati* jika tidak ada catatan.`, { parse_mode: 'Markdown' });
+    } else if (state.step === 'ADD_STOCK_NOTE') {
+      const note = ctx.message.text.trim();
+      if (note.toLowerCase() === 'lewati') {
+        delete userState[adminId];
+        return ctx.reply(`✅ *${state.inserted} stok* tersimpan. Catatan produk tidak diubah.`, { parse_mode: 'Markdown' });
+      }
+      db.run(`UPDATE products SET note = ? WHERE id = ?`, [note, state.prodId], (err) => {
+        if (err) {
+          console.error('Gagal menyimpan note produk:', err.message);
+          return ctx.reply('⚠️ Gagal menyimpan catatan produk.');
+        }
+        delete userState[adminId];
+        ctx.reply(`✅ *${state.inserted} stok* tersimpan dan catatan/arahan pembeli berhasil disimpan!`, { parse_mode: 'Markdown' });
+      });
     }
   }
 });
