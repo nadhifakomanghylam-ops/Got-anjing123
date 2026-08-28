@@ -58,10 +58,12 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     upline_id INTEGER DEFAULT 0,
-    balance INTEGER DEFAULT 0
+    balance INTEGER DEFAULT 0,
+    tier TEXT DEFAULT 'Bronze'
   )`);
-  // Migration: tambah kolom 'balance' kalau tabel users lama belum punya
+  // Migration: tambah kolom 'balance' & 'tier' kalau tabel users lama belum punya
   db.run(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0`, () => {});
+  db.run(`ALTER TABLE users ADD COLUMN tier TEXT DEFAULT 'Bronze'`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS visitors (
     user_id INTEGER PRIMARY KEY,
     username TEXT,
@@ -161,6 +163,15 @@ const saveUserAndVisitor = (ctx, uplineId = 0) => {
   db.run(`INSERT OR IGNORE INTO visitors (user_id, username, first_name, joined_at) VALUES (?, ?, ?, ?)`, [userId, username, firstName, now]);
 };
 
+// Baris info akun (ID, Saldo, Tier) yang ditampilkan di pesan sambutan
+const getUserInfoLine = (userId, cb) => {
+  db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err, row) => {
+    const balance = row ? (row.balance || 0) : 0;
+    const tier = row ? (row.tier || 'Bronze') : 'Bronze';
+    cb(`👤 *ID Telegram:* \`${userId}\`\n💳 *Saldo:* Rp${balance.toLocaleString('id-ID')}\n🏷️ *Tier:* ${tier}`);
+  });
+};
+
 // MENU UTAMA
 const getMainMenu = (userId) => {
   const adminId = getAdminId();
@@ -189,6 +200,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply'), Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname')],
     [Markup.button.callback('🔒 Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group')],
     [Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
+    [Markup.button.callback('👤 Kelola Saldo/Tier User', 'admin_manage_user')],
     [Markup.button.callback('📢 Broadcast Chat', 'admin_broadcast_menu'), Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button')],
     [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
   ]);
@@ -197,23 +209,27 @@ const getAdminMenu = () => {
 bot.start(async (ctx) => {
   saveUserAndVisitor(ctx);
   db.get(`SELECT * FROM store WHERE id = 1`, (err, store) => {
-    const text = `🏬 *${store.name}*\n\n${store.desc}`;
-    if (store && store.photo) {
-      ctx.replyWithPhoto(store.photo, { caption: text, parse_mode: 'Markdown', ...getMainMenu(ctx.from.id) });
-    } else {
-      ctx.replyWithMarkdown(text, getMainMenu(ctx.from.id));
-    }
+    getUserInfoLine(ctx.from.id, (infoLine) => {
+      const text = `🏬 *${store.name}*\n\n${store.desc}\n\n${infoLine}`;
+      if (store && store.photo) {
+        ctx.replyWithPhoto(store.photo, { caption: text, parse_mode: 'Markdown', ...getMainMenu(ctx.from.id) });
+      } else {
+        ctx.replyWithMarkdown(text, getMainMenu(ctx.from.id));
+      }
+    });
   });
 });
 
 bot.action('main_menu', async (ctx) => {
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
-    const text = `🏬 *${store.name}*\n\n${store.desc}`;
-    if (store && store.photo) {
-      await safeClearAndSend(ctx, text, { photo: store.photo, ...getMainMenu(ctx.from.id) });
-    } else {
-      await safeClearAndSend(ctx, text, getMainMenu(ctx.from.id));
-    }
+    getUserInfoLine(ctx.from.id, async (infoLine) => {
+      const text = `🏬 *${store.name}*\n\n${store.desc}\n\n${infoLine}`;
+      if (store && store.photo) {
+        await safeClearAndSend(ctx, text, { photo: store.photo, ...getMainMenu(ctx.from.id) });
+      } else {
+        await safeClearAndSend(ctx, text, getMainMenu(ctx.from.id));
+      }
+    });
   });
 });
 
@@ -459,7 +475,9 @@ bot.action(/^paysaldo_(.+)$/, async (ctx) => {
             db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
               if (store && store.log_group_id) {
                 const testiText = `🎉 *TRANSAKSI SUKSES (SALDO)*\n\n🧾 *ID:* #${orderId}\n📦 *Produk:* ${prod.name}\n💰 *Total:* Rp${prod.price.toLocaleString('id-ID')}\n👤 *Buyer:* ${username}`;
-                bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
+                bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch((e) => {
+                  bot.telegram.sendMessage(getAdminId(), `⚠️ Gagal kirim testimoni transaksi saldo #${orderId} ke grup (ID: \`${store.log_group_id}\`).\n\nError: ${e.description || e.message}`, { parse_mode: 'Markdown' }).catch(() => {});
+                });
               }
             });
           });
@@ -640,6 +658,59 @@ bot.action(/^delvouc_(.+)$/, (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   db.run(`DELETE FROM vouchers WHERE code = ?`, [ctx.match[1]]);
   ctx.reply('✅ Voucher berhasil dihapus!');
+});
+
+// KELOLA SALDO & TIER USER (ADMIN)
+const showUserManageCard = (ctx, targetId) => {
+  db.get(`SELECT * FROM users WHERE user_id = ?`, [targetId], (err, row) => {
+    if (!row) {
+      db.run(`INSERT INTO users (user_id, upline_id, balance, tier) VALUES (?, 0, 0, 'Bronze')`, [targetId], () => {
+        showUserManageCard(ctx, targetId);
+      });
+      return;
+    }
+    const balance = row.balance || 0;
+    const tier = row.tier || 'Bronze';
+    const text = `👤 *KELOLA USER*\n\n🆔 *ID:* \`${targetId}\`\n💳 *Saldo:* Rp${balance.toLocaleString('id-ID')}\n🏷️ *Tier:* ${tier}`;
+    ctx.reply(text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('➕ Tambah Saldo', `adduser_saldo_${targetId}`), Markup.button.callback('➖ Kurangi Saldo', `subuser_saldo_${targetId}`)],
+        [Markup.button.callback('🥉 Bronze', `settier_${targetId}_Bronze`), Markup.button.callback('🥈 Silver', `settier_${targetId}_Silver`), Markup.button.callback('🥇 Gold', `settier_${targetId}_Gold`)],
+        [Markup.button.callback('🔙 Dashboard', 'admin_dashboard')]
+      ])
+    });
+  });
+};
+
+bot.action('admin_manage_user', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADMIN_MANAGE_USER_ID' };
+  ctx.reply('Masukkan ID Telegram user yang ingin dikelola:');
+});
+
+bot.action(/^adduser_saldo_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const targetId = ctx.match[1];
+  userState[getAdminId()] = { step: 'ADMIN_ADD_SALDO_AMOUNT', targetId };
+  ctx.reply(`Masukkan nominal saldo yang ingin *DITAMBAHKAN* untuk user \`${targetId}\` (angka saja):`, { parse_mode: 'Markdown' });
+});
+
+bot.action(/^subuser_saldo_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const targetId = ctx.match[1];
+  userState[getAdminId()] = { step: 'ADMIN_SUB_SALDO_AMOUNT', targetId };
+  ctx.reply(`Masukkan nominal saldo yang ingin *DIKURANGI* dari user \`${targetId}\` (angka saja):`, { parse_mode: 'Markdown' });
+});
+
+bot.action(/^settier_(.+)_(Bronze|Silver|Gold)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const targetId = ctx.match[1];
+  const tier = ctx.match[2];
+  db.run(`UPDATE users SET tier = ? WHERE user_id = ?`, [tier, targetId]);
+  ctx.answerCbQuery(`✅ Tier user ${targetId} diubah jadi ${tier}`, { show_alert: true });
+  bot.telegram.sendMessage(targetId, `🏷️ *TIER ANDA DIPERBARUI*\n\nTier akun Anda sekarang: *${tier}*`, { parse_mode: 'Markdown' }).catch(() => {});
+  showUserManageCard(ctx, targetId);
 });
 
 bot.action('admin_broadcast_menu', (ctx) => {
@@ -935,7 +1006,32 @@ bot.on('text', async (ctx) => {
   }
 
   if (Number(ctx.from.id) === adminId) {
-    if (state.step === 'EDIT_STORE_NAME') {
+    if (state.step === 'ADMIN_MANAGE_USER_ID') {
+      const targetId = ctx.message.text.trim().replace(/[^0-9]/g, '');
+      delete userState[adminId];
+      if (!targetId) return ctx.reply('⚠️ ID tidak valid. Coba lagi lewat menu Kelola Saldo/Tier User.');
+      showUserManageCard(ctx, targetId);
+    } else if (state.step === 'ADMIN_ADD_SALDO_AMOUNT') {
+      const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
+      const targetId = state.targetId;
+      if (!amount || amount <= 0) return ctx.reply('⚠️ Masukkan angka yang valid:');
+      delete userState[adminId];
+      db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [amount, targetId], () => {
+        ctx.reply(`✅ Saldo user \`${targetId}\` berhasil ditambah Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' });
+        bot.telegram.sendMessage(targetId, `💰 *SALDO ANDA BERTAMBAH*\n\nAdmin menambahkan saldo sebesar Rp${amount.toLocaleString('id-ID')} ke akun Anda.`, { parse_mode: 'Markdown' }).catch(() => {});
+        showUserManageCard(ctx, targetId);
+      });
+    } else if (state.step === 'ADMIN_SUB_SALDO_AMOUNT') {
+      const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
+      const targetId = state.targetId;
+      if (!amount || amount <= 0) return ctx.reply('⚠️ Masukkan angka yang valid:');
+      delete userState[adminId];
+      db.run(`UPDATE users SET balance = MAX(0, COALESCE(balance, 0) - ?) WHERE user_id = ?`, [amount, targetId], () => {
+        ctx.reply(`✅ Saldo user \`${targetId}\` berhasil dikurangi Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' });
+        bot.telegram.sendMessage(targetId, `⚠️ *SALDO ANDA DIKURANGI*\n\nAdmin mengurangi saldo sebesar Rp${amount.toLocaleString('id-ID')} dari akun Anda.`, { parse_mode: 'Markdown' }).catch(() => {});
+        showUserManageCard(ctx, targetId);
+      });
+    } else if (state.step === 'EDIT_STORE_NAME') {
       userState[adminId] = { step: 'EDIT_STORE_DESC', name: ctx.message.text.trim() };
       ctx.reply('Masukkan Deskripsi Toko Baru:');
     } else if (state.step === 'EDIT_STORE_DESC') {
