@@ -125,14 +125,22 @@ db.serialize(() => {
     buyer_name TEXT
   )`);
 
-  // Log transactionId dari webhook Casaku yang sudah diproses, supaya retry
-  // otomatis dari Casaku (sampai 3x kalau timeout) tidak diproses dua kali.
   db.run(`CREATE TABLE IF NOT EXISTS casaku_webhook_log (
     transaction_id TEXT PRIMARY KEY,
     matched_type TEXT,
     matched_id INTEGER,
     amount INTEGER,
     received_at TEXT
+  )`);
+
+  // TABEL TAMBAHAN UNTUK FITUR VPN
+  db.run(`CREATE TABLE IF NOT EXISTS vpn_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    server_name TEXT,
+    expired_at TEXT,
+    status TEXT DEFAULT 'ACTIVE'
   )`);
   
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
@@ -262,15 +270,15 @@ const getUserInfoLine = (ctx, cb) => {
   });
 };
 
-// MENU UTAMA
+// MENU UTAMA (DITAMBAH TOMBOL VPN)
 const getMainMenu = (userId) => {
   const adminId = getAdminId();
   const buttons = [
     [Markup.button.callback('🛒 Katalog Produk', 'user_catalog'), Markup.button.callback('🔍 Cari Produk', 'user_search_prod')],
-    [Markup.button.callback('💳 Saldo & Top Up', 'user_balance_menu'), Markup.button.callback('📦 Cek Pesanan', 'user_my_orders')],
-    [Markup.button.callback('📊 Cek Stok Live', 'user_live_stock'), Markup.button.callback('🔗 Program Referral', 'user_referral')],
-    [Markup.button.callback('📖 Cara Belanja', 'user_faq'), Markup.button.callback('📞 Customer Service', 'user_contact')],
-    [Markup.button.callback('🆔 Cek ID', 'user_check_id')]
+    [Markup.button.callback('🌐 Layanan VPN', 'user_vpn_menu'), Markup.button.callback('💳 Saldo & Top Up', 'user_balance_menu')],
+    [Markup.button.callback('📦 Cek Pesanan', 'user_my_orders'), Markup.button.callback('📊 Cek Stok Live', 'user_live_stock')],
+    [Markup.button.callback('🔗 Program Referral', 'user_referral'), Markup.button.callback('📖 Cara Belanja', 'user_faq')],
+    [Markup.button.callback('📞 Customer Service', 'user_contact'), Markup.button.callback('🆔 Cek ID', 'user_check_id')]
   ];
   if (Number(userId) === adminId && adminId !== 0) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
@@ -320,6 +328,43 @@ bot.action('main_menu', async (ctx) => {
         await safeClearAndSend(ctx, text, getMainMenu(ctx.from.id));
       }
     });
+  });
+});
+
+// HANDLER MENU VPN
+bot.action('user_vpn_menu', async (ctx) => {
+  ctx.answerCbQuery();
+  const text = `🌐 *LAYANAN NADIA VPN*\n\n` +
+    `Nikmati koneksi internet cepat, aman, dan tanpa batas dengan server pilihan berkualitas tinggi.\n\n` +
+    `Silakan pilih menu di bawah ini:`;
+    
+  await safeClearAndSend(ctx, text, Markup.inlineKeyboard([
+    [Markup.button.callback('📦 Beli / Buat Akun VPN', 'vpn_buy_list')],
+    [Markup.button.callback('👤 Status VPN Saya', 'vpn_my_status')],
+    [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
+  ]));
+});
+
+bot.action('vpn_buy_list', async (ctx) => {
+  ctx.answerCbQuery();
+  await safeClearAndSend(ctx, `🌐 *PEMBELIAN VPN*\n\nSilakan pilih melalui katalog produk utama atau hubungi admin untuk daftar server VPN yang tersedia.`, Markup.inlineKeyboard([
+    [Markup.button.callback('🛒 Ke Katalog Produk', 'user_catalog')],
+    [Markup.button.callback('🔙 Kembali', 'user_vpn_menu')]
+  ]));
+});
+
+bot.action('vpn_my_status', async (ctx) => {
+  ctx.answerCbQuery();
+  const userId = ctx.from.id;
+  db.all(`SELECT * FROM vpn_subscriptions WHERE user_id = ? AND status = 'ACTIVE'`, [userId], async (err, rows) => {
+    if (!rows || rows.length === 0) {
+      return await safeClearAndSend(ctx, `👤 *STATUS VPN ANDA*\n\nAnda belum memiliki langganan VPN aktif.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'user_vpn_menu')]]));
+    }
+    let text = `👤 *STATUS VPN AKTIF ANDA:*\n\n`;
+    rows.forEach(r => {
+      text += `• *Server:* ${r.server_name}\n  Berakhir: ${r.expired_at}\n\n`;
+    });
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'user_vpn_menu')]]));
   });
 });
 
@@ -577,7 +622,6 @@ bot.action(/^vouc_(.+)_(.+)$/, async (ctx) => {
   await safeClearAndSend(ctx, `🎟️ *MASUKKAN KODE VOUCHER*\n\nKetik kode voucher diskon di chat:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `selectqty_${prodId}_${qty}`)]]));
 });
 
-// PEMBAYARAN QRIS
 // PEMBAYARAN QRIS DINAMIS CASAKU
 bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
   const prodId = ctx.match[1];
@@ -680,8 +724,6 @@ bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
   });
 });
 
-// Approve top up secara terprogram (dipanggil dari tombol admin ATAU dari webhook Casaku).
-// Mengembalikan Promise<{ ok: boolean, reason?: string, topup?: object }>
 const approveTopupById = (topupId) => {
   return new Promise((resolve) => {
     db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
@@ -697,7 +739,6 @@ const approveTopupById = (topupId) => {
   });
 };
 
-// ADMIN APPROVE / REJECT TOP UP
 bot.action(/^topupapprove_(.+)$/, async (ctx) => {
   const adminId = getAdminId();
   if (Number(ctx.from.id) !== adminId) return;
@@ -726,8 +767,6 @@ bot.action(/^topupreject_(.+)$/, async (ctx) => {
   });
 });
 
-// Approve order secara terprogram (dipanggil dari tombol admin ATAU dari webhook Casaku).
-// Mengembalikan Promise<{ ok: boolean, reason?: string, order?: object }>
 const approveOrderById = (orderId) => {
   return new Promise((resolve) => {
     db.get(`SELECT o.*, p.name as product_name, p.photo as prod_photo, p.note as product_note FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
@@ -766,7 +805,6 @@ const approveOrderById = (orderId) => {
   });
 };
 
-// ADMIN APPROVE PEMBAYARAN & KIRIM TESTI BER-FOTO
 bot.action(/^approve_(.+)$/, async (ctx) => {
   const adminId = getAdminId();
   if (Number(ctx.from.id) !== adminId) return;
@@ -797,7 +835,6 @@ bot.action(/^reject_(.+)$/, async (ctx) => {
   });
 });
 
-// DASHBOARD ADMIN & ACTION HANDLERS
 const sendAdminDashboard = async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   await safeClearAndSend(ctx, '⚙️ *DASHBOARD ADMIN TOKO*', getAdminMenu());
@@ -896,7 +933,6 @@ bot.action(/^delvouc_(.+)$/, (ctx) => {
   ctx.reply('✅ Voucher berhasil dihapus!');
 });
 
-// KELOLA SALDO & TIER USER (DUKUNG TIER OWNER UNLIMITED)
 const showUserManageCard = (ctx, targetId) => {
   db.get(`SELECT * FROM users WHERE user_id = ?`, [targetId], (err, row) => {
     if (!row) {
@@ -1020,7 +1056,6 @@ bot.action(/^delar_(.+)$/, (ctx) => {
   ctx.reply('✅ Auto-reply berhasil dihapus!');
 });
 
-// UPLOAD AUDIO (ADMIN)
 bot.on('audio', async (ctx) => {
   const adminId = getAdminId();
   if (Number(ctx.from.id) !== adminId || !userState[adminId] || userState[adminId].step !== 'SET_SONG') return;
@@ -1031,7 +1066,6 @@ bot.on('audio', async (ctx) => {
   ctx.reply('✅ Lagu berhasil dipasang! Tombol 🎵 Lagu di menu utama sekarang aktif.');
 });
 
-// UPLOAD PHOTO HANDLER
 bot.on('photo', async (ctx) => {
   const adminId = getAdminId();
   const userId = ctx.from.id;
@@ -1059,7 +1093,6 @@ bot.on('photo', async (ctx) => {
     return;
   }
 
-  // BUYER UPLOAD BUKTI TRANSFER TOP UP
   const state = userState[userId];
   if (state && state.step === 'UPLOAD_TOPUP_PROOF') {
     const topupId = state.topupId;
@@ -1089,7 +1122,6 @@ bot.on('photo', async (ctx) => {
     return;
   }
 
-  // BUYER UPLOAD BUKTI TRANSFER PESANAN
   if (state && state.step === 'UPLOAD_PROOF') {
     const orderId = state.orderId;
     delete userState[userId];
@@ -1118,7 +1150,6 @@ bot.on('photo', async (ctx) => {
     return;
   }
 
-  // RELAY FOTO BUYER KE ADMIN
   if (!state && Number(userId) !== adminId && adminId) {
     const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
     const caption = ctx.message.caption || '';
@@ -1131,13 +1162,11 @@ bot.on('photo', async (ctx) => {
   }
 });
 
-// TEXT HANDLER & INPUT PROCESSING
 bot.on('text', async (ctx) => {
   const adminId = getAdminId();
   const userId = ctx.from.id;
   const state = userState[userId];
 
-  // ADMIN REPLY CHAT RELAY
   if (Number(userId) === adminId && ctx.message.reply_to_message) {
     const repliedMsgId = ctx.message.reply_to_message.message_id;
     const relay = await new Promise((resolve) => {
@@ -1151,7 +1180,6 @@ bot.on('text', async (ctx) => {
     }
   }
 
-  // RELAY CHAT DARI BUYER KE ADMIN
   if (!state && Number(userId) !== adminId && adminId) {
     const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
     const relayText = `💬 *Chat dari Buyer*\n👤 ${buyerName} (ID: \`${userId}\`)\n\n${ctx.message.text}\n\n_↩️ Reply pesan ini untuk membalas ke buyer._`;
@@ -1344,8 +1372,6 @@ bot.on('text', async (ctx) => {
       });
       stmt.finalize();
 
-      // Setelah stok masuk, minta catatan/arahan produk secara TERPISAH.
-      // Isi catatan boleh panjang dan multiline; tidak akan dihitung sebagai stok.
       userState[adminId] = { step: 'ADD_STOCK_NOTE', prodId: state.prodId, inserted };
       ctx.reply(`✅ Berhasil menambahkan *${inserted} stok* secara massal!\n\n📝 Sekarang kirim *catatan/arahan untuk pembeli* produk ini.\n\nContoh:\nAmbil paket di menu\nLogin menggunakan akun yang dikirim\nJangan ubah password\n\nTeks boleh panjang dan boleh beberapa paragraf.\n\nKetik *lewati* jika tidak ada catatan.`, { parse_mode: 'Markdown' });
     } else if (state.step === 'ADD_STOCK_NOTE') {
@@ -1366,7 +1392,6 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// COMMAND MENU BOT TELEGRAM
 const setupCommandMenu = async () => {
   try {
     await bot.telegram.setMyCommands([
@@ -1393,22 +1418,12 @@ const setupCommandMenu = async () => {
   }
 };
 
-// =====================================================
-// WEBHOOK SERVER - CASAKU (auto-approve pembayaran QRIS)
-// =====================================================
-// Casaku memonitor QRIS statis toko lalu mengirim POST ke sini setiap ada
-// mutasi masuk. Body ditandatangani HMAC-SHA256 pakai CASAKU_WEBHOOK_SECRET,
-// dikirim di header X-Casaku-Signature. Kita cocokkan `amount` dari payload
-// dengan order/top-up berstatus PENDING yang nominalnya sama persis
-// (nominal sudah dibuat unik lewat kode 3 digit acak saat checkout).
 const app = express();
 
-// express.raw() dipakai khusus di route ini supaya kita punya raw body
-// (Buffer) untuk verifikasi HMAC - JSON.parse baru dilakukan manual setelahnya.
 app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
   const secret = process.env.CASAKU_WEBHOOK_SECRET;
   const signature = req.headers['x-casaku-signature'];
-  const rawBody = req.body; // Buffer
+  const rawBody = req.body;
 
   if (!secret) {
     console.log('⚠️ CASAKU_WEBHOOK_SECRET belum diatur di environment variable.');
@@ -1427,14 +1442,11 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
     return res.status(400).send('Invalid JSON');
   }
 
-  // Balas 200 duluan secepatnya (syarat Casaku: respons <10 detik),
-  // sisanya diproses async.
   res.status(200).send('OK');
 
   const { transactionId, amount, status } = payload;
   if (status !== 'paid' || !transactionId || !amount) return;
 
-  // Cegah proses dobel kalau Casaku retry webhook yang sama.
   db.get(`SELECT * FROM casaku_webhook_log WHERE transaction_id = ?`, [transactionId], async (err, existing) => {
     if (existing) {
       console.log(`ℹ️ Webhook Casaku ${transactionId} sudah pernah diproses, dilewati.`);
@@ -1445,9 +1457,7 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
     let matchedType = null;
     let matchedId = null;
 
-    // 1) Untuk QRIS dinamis, transactionId adalah pasangan yang paling aman.
     db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, orderByTrx) => {
-      // Fallback ke nominal untuk transaksi lama yang masih memakai QRIS statis.
       const findOrder = (callback) => {
         if (orderByTrx) return callback(orderByTrx);
         db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacyOrder) => callback(legacyOrder));
@@ -1465,7 +1475,6 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
         return;
       }
 
-      // 2) Kalau tidak ada order yang cocok, coba cocokkan ke TOP UP PENDING.
       db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, topupByTrx) => {
         const findTopup = (callback) => {
           if (topupByTrx) return callback(topupByTrx);
