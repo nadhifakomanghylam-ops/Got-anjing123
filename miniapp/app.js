@@ -31,10 +31,12 @@ const loadStore = async () => {
   BOT_USERNAME = store.bot_username || '';
   document.getElementById('storeName').textContent = store.name || 'Toko Digital';
   document.getElementById('storeDesc').textContent = store.desc || '';
+  const img = document.getElementById('storePhoto');
+  const initial = document.getElementById('storeInitial');
   if (store.photo) {
-    const img = document.getElementById('storePhoto');
+    img.onload = () => { img.style.display = 'block'; initial.style.display = 'none'; };
+    img.onerror = () => { img.style.display = 'none'; initial.style.display = 'flex'; };
     img.src = store.photo;
-    img.style.display = 'block';
   }
 };
 
