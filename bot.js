@@ -195,7 +195,6 @@ const getMainMenu = (userId) => {
   if (Number(userId) === adminId && adminId !== 0) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
   }
-  buttons.push([Markup.button.callback('🎵 Lagu', 'user_lagu')]);
   return Markup.inlineKeyboard(buttons);
 };
 
@@ -206,6 +205,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
     [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🧾 Set Foto QRIS', 'admin_set_qris_photo')],
+    [Markup.button.callback('🅳 Set Nomor DANA', 'admin_set_dana'), Markup.button.callback('🅶 Set Nomor GoPay', 'admin_set_gopay')],
     [Markup.button.callback('👋 Set Welcome Msg', 'admin_set_welcome'), Markup.button.callback('👋 Set Leave Msg', 'admin_set_leave')],
     [Markup.button.callback('🎵 Set Lagu', 'admin_set_song'), Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply_type')],
     [Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply'), Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname')],
@@ -254,15 +254,6 @@ bot.start(async (ctx) => {
       } else {
         await ctx.replyWithMarkdown(text, getStartMenu(store));
       }
-      
-      // AUTO KIRIM LAGU SETELAH MENU UTAMA
-      if (store && store.song) {
-        try {
-          await ctx.replyWithAudio(store.song, { caption: '🎵 *Auto-playing Music*\n\nSelamat menikmati!', parse_mode: 'Markdown' });
-        } catch (e) { 
-          console.log('Gagal kirim lagu auto:', e.message); 
-        }
-      }
     });
   });
 });
@@ -302,13 +293,56 @@ bot.action('user_script_menu', async (ctx) => {
       return safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
     }
     const buttons = [
-      [Markup.button.callback('💳 Bayar via QRIS', `script_pay_qris_1`)],
+      [Markup.button.callback('💳 Bayar via QRIS (Otomatis)', `script_pay_qris_1`)],
+      [Markup.button.callback('🧾 Bayar QRIS Manual', `script_pay_manual_1`)],
+      [Markup.button.callback('🅳 Bayar via DANA', `script_pay_dana_1`)],
+      [Markup.button.callback('🅶 Bayar via GoPay', `script_pay_gopay_1`)],
       [Markup.button.callback('💰 Bayar Pakai Saldo', `script_pay_saldo_1`)],
       [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
     ];
     safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
   });
 });
+
+// Bayar Script via QRIS Manual (foto QRIS statis) / DANA / GoPay (nomor teks)
+const scriptPayManualBase = async (ctx, scriptId, methodType) => {
+  db.get(`SELECT * FROM bot_scripts WHERE id = ?`, [scriptId], async (err, script) => {
+    if (!script) return ctx.answerCbQuery('Script tidak ditemukan.', { show_alert: true });
+    if (script.stock <= 0) return ctx.answerCbQuery('Stok habis!', { show_alert: true });
+    db.get(`SELECT qris, dana, gopay FROM store WHERE id = 1`, async (err, store) => {
+      const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+      const now = new Date().toISOString();
+      const insertOrder = (cb) => {
+        db.run(`INSERT INTO script_orders (user_id, username, script_id, amount, status, created_at) VALUES (?, ?, ?, ?, 'PENDING', ?)`,
+          [ctx.from.id, username, scriptId, script.price, now], function (dbErr) { cb(dbErr, this.lastID); });
+      };
+      if (methodType === 'qris') {
+        const qrisPhoto = (DEFAULT_QRIS_PHOTO && DEFAULT_QRIS_PHOTO.trim() !== '') ? DEFAULT_QRIS_PHOTO : (store && store.qris ? store.qris : '');
+        if (!qrisPhoto) return ctx.answerCbQuery('⚠️ Foto QRIS manual belum diatur admin.', { show_alert: true });
+        insertOrder((dbErr, orderId) => {
+          if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
+          userState[ctx.from.id] = { step: 'UPLOAD_SCRIPT_PROOF', scriptOrderId: orderId };
+          const detailText = `🧾 *PESANAN SCRIPT #${orderId}* (QRIS Manual)\n\n📦 *Script:* ${script.name}\n💳 *Total Bayar:* *Rp${script.price.toLocaleString('id-ID')}*\n\n📲 Scan QRIS di atas, lalu kirim *foto bukti transfer* ke chat ini.`;
+          safeClearAndSend(ctx, detailText, { photo: qrisPhoto, ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]]) });
+        });
+      } else {
+        const methodKey = methodType === 'dana' ? 'dana' : 'gopay';
+        const methodLabel = methodType === 'dana' ? 'DANA' : 'GoPay';
+        const number = store && store[methodKey] ? store[methodKey].trim() : '';
+        if (!number) return ctx.answerCbQuery(`⚠️ Nomor ${methodLabel} belum diatur admin.`, { show_alert: true });
+        insertOrder((dbErr, orderId) => {
+          if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
+          userState[ctx.from.id] = { step: 'UPLOAD_SCRIPT_PROOF', scriptOrderId: orderId };
+          const detailText = `🧾 *PESANAN SCRIPT #${orderId}* (${methodLabel})\n\n📦 *Script:* ${script.name}\n💳 *Total Bayar:* *Rp${script.price.toLocaleString('id-ID')}*\n\n📲 Transfer ke *${methodLabel}*:\n\`${number}\`\n\nSetelah transfer, kirim *foto bukti* ke chat ini.`;
+          safeClearAndSend(ctx, detailText, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]]));
+        });
+      }
+    });
+  });
+};
+bot.action(/^script_pay_manual_(.+)$/, async (ctx) => { await scriptPayManualBase(ctx, ctx.match[1], 'qris'); });
+bot.action(/^script_pay_dana_(.+)$/, async (ctx) => { await scriptPayManualBase(ctx, ctx.match[1], 'dana'); });
+bot.action(/^script_pay_gopay_(.+)$/, async (ctx) => { await scriptPayManualBase(ctx, ctx.match[1], 'gopay'); });
 
 bot.action(/^script_pay_saldo_(.+)$/, async (ctx) => {
   const scriptId = ctx.match[1];
@@ -351,7 +385,8 @@ bot.action(/^script_pay_qris_(.+)$/, async (ctx) => {
         [userId, username, scriptId, script.price, now, qris.transactionId, qris.expiresAt], function (dbErr) {
           if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
           const orderId = this.lastID;
-          const detailText = `🧾 *PESANAN SCRIPT #${orderId}*\n\n📦 *Script:* ${script.name}\n💰 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS dinamis.`;
+          userState[userId] = { step: 'UPLOAD_SCRIPT_PROOF', scriptOrderId: orderId };
+          const detailText = `🧾 *PESANAN SCRIPT #${orderId}*\n\n📦 *Script:* ${script.name}\n💰 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS di atas, lalu kirim *foto bukti transfer* ke chat ini.`;
           safeClearAndSend(ctx, detailText, {
             photo: { source: qris.imageBuffer },
             ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]])
@@ -455,14 +490,6 @@ bot.on('video', async (ctx) => {
 bot.action('user_check_id', async (ctx) => {
   ctx.answerCbQuery();
   ctx.replyWithMarkdown(`👤 *ID Telegram Anda:* \`${ctx.from.id}\``);
-});
-bot.action('user_lagu', async (ctx) => {
-  ctx.answerCbQuery();
-  db.get(`SELECT song FROM store WHERE id = 1`, async (err, store) => {
-    if (!store || !store.song) return ctx.reply('⚠️ Admin belum mengatur lagu.');
-    try { await ctx.replyWithAudio(store.song, { caption: '🎵 Ini dia lagunya!' }); }
-    catch (e) { ctx.reply('⚠️ Gagal mengirim lagu.'); }
-  });
 });
 bot.action('user_faq', async (ctx) => {
   ctx.answerCbQuery();
@@ -570,44 +597,81 @@ const sendCatalog = async (ctx) => {
 bot.action('user_catalog', sendCatalog);
 bot.command('katalog', sendCatalog);
 
-bot.action(/^buy_(.+)$/, async (ctx) => {
-  const prodId = ctx.match[1];
+const renderQtySelector = async (ctx, prodId, qty, editInPlace) => {
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
+    if (!prod) return;
     db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [prodId], async (err, res) => {
       const available = res ? res.stock_count : 0;
-      if (available <= 0) return ctx.answerCbQuery(`⚠️ Stok ${prod.name} habis!`, { show_alert: true });
-      const captionText = `📦 *DETAIL: ${prod.name}*\n💰 *Harga:* Rp${prod.price.toLocaleString('id-ID')}\n📊 *Stok:* ${available}\n\n*Pilih Jumlah (Max ${Math.min(100, available)}):*`;
-      const qtyButtons = [];
-      const limits = [1, 2, 5, 10, 20, 50, 100];
-      let row = [];
-      limits.forEach(q => {
-        if (q <= available) {
-          row.push(Markup.button.callback(`🛒 Beli ${q}`, `selectqty_${prodId}_${q}`));
-          if (row.length === 3) { qtyButtons.push(row); row = []; }
-        }
-      });
-      if (row.length > 0) qtyButtons.push(row);
-      qtyButtons.push([Markup.button.callback('🔙 Katalog', 'user_catalog')]);
-      if (prod.photo && prod.photo !== '') await safeClearAndSend(ctx, captionText, { photo: prod.photo, ...Markup.inlineKeyboard(qtyButtons) });
-      else await safeClearAndSend(ctx, captionText, Markup.inlineKeyboard(qtyButtons));
+      if (available <= 0) return ctx.answerCbQuery ? ctx.answerCbQuery(`⚠️ Stok ${prod.name} habis!`, { show_alert: true }) : null;
+      qty = Math.max(1, Math.min(qty, available));
+      const totalPrice = prod.price * qty;
+      const captionText = `📦 *DETAIL: ${prod.name}*\n💰 *Harga Satuan:* Rp${prod.price.toLocaleString('id-ID')}\n📊 *Stok:* ${available}\n\n🔢 *Jumlah:* ${qty}\n💵 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`;
+      const buttons = Markup.inlineKeyboard([
+        [Markup.button.callback('➖', `qtyadj_${prodId}_${qty}_dec`), Markup.button.callback(`${qty}`, `qtyadj_${prodId}_${qty}_noop`), Markup.button.callback('➕', `qtyadj_${prodId}_${qty}_inc`)],
+        [Markup.button.callback('✍️ Ketik Jumlah', `qtytype_${prodId}`)],
+        [Markup.button.callback('✅ Lanjut ke Pembayaran', `qtyconfirm_${prodId}_${qty}`)],
+        [Markup.button.callback('🔙 Katalog', 'user_catalog')]
+      ]);
+      if (editInPlace) {
+        try {
+          if (prod.photo && prod.photo !== '') await ctx.editMessageCaption(captionText, { parse_mode: 'Markdown', ...buttons });
+          else await ctx.editMessageText(captionText, { parse_mode: 'Markdown', ...buttons });
+        } catch (e) { /* pesan sama persis, abaikan */ }
+      } else {
+        if (prod.photo && prod.photo !== '') await safeClearAndSend(ctx, captionText, { photo: prod.photo, ...buttons });
+        else await safeClearAndSend(ctx, captionText, buttons);
+      }
     });
   });
+};
+
+bot.action(/^buy_(.+)$/, async (ctx) => {
+  const prodId = ctx.match[1];
+  await renderQtySelector(ctx, prodId, 1, false);
 });
 
-bot.action(/^selectqty_(.+)_(.+)$/, async (ctx) => {
+bot.action(/^qtyadj_(.+)_(.+)_(inc|dec|noop)$/, async (ctx) => {
   const prodId = ctx.match[1];
-  const qty = parseInt(ctx.match[2]);
+  let qty = parseInt(ctx.match[2]);
+  const action = ctx.match[3];
+  ctx.answerCbQuery();
+  if (action === 'inc') qty += 1;
+  if (action === 'dec') qty -= 1;
+  if (qty < 1) qty = 1;
+  await renderQtySelector(ctx, prodId, qty, true);
+});
+
+bot.action(/^qtytype_(.+)$/, async (ctx) => {
+  const prodId = ctx.match[1];
+  userState[ctx.from.id] = { step: 'QTY_CUSTOM_INPUT', prodId };
+  ctx.answerCbQuery();
+  await safeClearAndSend(ctx, `✍️ *KETIK JUMLAH*\n\nMasukkan jumlah yang mau dibeli (angka):`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `buy_${prodId}`)]]));
+});
+
+const showPaymentOptions = (ctx, prodId, qty) => {
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
+    if (!prod) return;
     const totalPrice = prod.price * qty;
     const buttons = Markup.inlineKeyboard([
       [Markup.button.callback('🎟️ Pakai Voucher', `vouc_${prodId}_${qty}`)],
       [Markup.button.callback('💳 Bayar via QRIS (Otomatis)', `pay_${prodId}_${qty}_0`)],
       [Markup.button.callback('🧾 Bayar QRIS Manual', `paymanual_${prodId}_${qty}_0`)],
+      [Markup.button.callback('🅳 Bayar via DANA', `paydana_${prodId}_${qty}_0`)],
+      [Markup.button.callback('🅶 Bayar via GoPay', `paygopay_${prodId}_${qty}_0`)],
       [Markup.button.callback('💰 Bayar Pakai Saldo', `paysaldo_${prodId}_${qty}`)],
       [Markup.button.callback('🔙 Kembali', `buy_${prodId}`)]
     ]);
     safeClearAndSend(ctx, `🛍️ *KONFIRMASI PESANAN*\n\n📦 *Produk:* ${prod.name}\n🔢 *Jumlah:* ${qty} item\n💰 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`, buttons);
   });
+};
+
+bot.action(/^qtyconfirm_(.+)_(.+)$/, async (ctx) => {
+  ctx.answerCbQuery();
+  showPaymentOptions(ctx, ctx.match[1], parseInt(ctx.match[2]));
+});
+
+bot.action(/^selectqty_(.+)_(.+)$/, async (ctx) => {
+  showPaymentOptions(ctx, ctx.match[1], parseInt(ctx.match[2]));
 });
 
 bot.action(/^vouc_(.+)_(.+)$/, async (ctx) => {
@@ -672,6 +736,36 @@ bot.action(/^paymanual_(.+)_(.+)_(.+)$/, async (ctx) => {
         });
     });
   });
+});
+
+// Bayar via DANA / GoPay — manual, pakai nomor teks yang di-set admin
+const payManualNumber = async (ctx, prodId, qty, discount, methodKey, methodLabel) => {
+  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
+    if (err || !prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
+    db.get(`SELECT ${methodKey} FROM store WHERE id = 1`, async (err, store) => {
+      const number = store && store[methodKey] ? store[methodKey].trim() : '';
+      if (!number) return ctx.answerCbQuery(`⚠️ Nomor ${methodLabel} belum diatur admin.`, { show_alert: true });
+      const totalPrice = Math.max(1000, (prod.price * qty) - discount);
+      const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+      const now = new Date().toISOString();
+      db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+        [ctx.from.id, username, prodId, qty, discount, totalPrice, now], function (dbErr) {
+          if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
+          const orderId = this.lastID;
+          userState[ctx.from.id] = { step: 'UPLOAD_PROOF', orderId };
+          const detailText = `🧾 *PESANAN #${orderId}* (${methodLabel})\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💳 *Total Bayar:* *Rp${totalPrice.toLocaleString('id-ID')}*\n\n📲 Transfer ke *${methodLabel}*:\n\`${number}\`\n\nSetelah transfer, kirim *foto bukti* ke chat ini.`;
+          safeClearAndSend(ctx, detailText, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]]));
+        });
+    });
+  });
+};
+
+bot.action(/^paydana_(.+)_(.+)_(.+)$/, async (ctx) => {
+  await payManualNumber(ctx, ctx.match[1], parseInt(ctx.match[2]), parseInt(ctx.match[3]) || 0, 'dana', 'DANA');
+});
+
+bot.action(/^paygopay_(.+)_(.+)_(.+)$/, async (ctx) => {
+  await payManualNumber(ctx, ctx.match[1], parseInt(ctx.match[2]), parseInt(ctx.match[3]) || 0, 'gopay', 'GoPay');
 });
 
 bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
@@ -787,6 +881,43 @@ bot.action(/^reject_(.+)$/, async (ctx) => {
   });
 });
 
+const approveScriptOrderById = (scriptOrderId) => {
+  return new Promise((resolve) => {
+    db.get(`SELECT so.*, bs.* , so.id as order_id FROM script_orders so JOIN bot_scripts bs ON so.script_id = bs.id WHERE so.id = ?`, [scriptOrderId], async (err, order) => {
+      if (!order) return resolve({ ok: false, reason: 'NOT_FOUND' });
+      if (order.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', order });
+      if (order.stock <= 0) return resolve({ ok: false, reason: 'OUT_OF_STOCK', order });
+      db.run(`UPDATE script_orders SET status = 'APPROVED' WHERE id = ?`, [scriptOrderId]);
+      db.run(`UPDATE bot_scripts SET stock = stock - 1 WHERE id = ?`, [order.script_id]);
+      await deliverScriptById(order.user_id, order);
+      bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN SCRIPT DIKONFIRMASI!*\n\nTerima kasih! Script telah dikirim.`, { parse_mode: 'Markdown' }).catch(() => {});
+      const testiText = `✅ *TRANSAKSI SCRIPT SUKSES*\n\n📦 *Script:* ${order.name}\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}\n\n_Terima kasih sudah belanja di toko kami!_`;
+      postTestiToGroup(testiText, order.proof);
+      resolve({ ok: true, order });
+    });
+  });
+};
+
+bot.action(/^scriptapprove_(.+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const result = await approveScriptOrderById(ctx.match[1]);
+  if (!result.ok) {
+    const msg = result.reason === 'ALREADY_APPROVED' ? 'Sudah di-approve!' : result.reason === 'OUT_OF_STOCK' ? 'Stok script habis!' : 'Tidak ditemukan.';
+    return ctx.answerCbQuery(msg, { show_alert: true });
+  }
+  ctx.answerCbQuery('✅ Script order di-approve & dikirim ke buyer.', { show_alert: true });
+});
+
+bot.action(/^scriptreject_(.+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.get(`SELECT * FROM script_orders WHERE id = ?`, [ctx.match[1]], (err, order) => {
+    if (!order) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true });
+    db.run(`UPDATE script_orders SET status = 'REJECTED' WHERE id = ?`, [ctx.match[1]]);
+    bot.telegram.sendMessage(order.user_id, `❌ *PEMBAYARAN SCRIPT DITOLAK*`, { parse_mode: 'Markdown' }).catch(() => {});
+    ctx.answerCbQuery('Script order ditolak.', { show_alert: true });
+  });
+});
+
 const sendAdminDashboard = async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   await safeClearAndSend(ctx, '⚙️ DASHBOARD ADMIN TOKO', getAdminMenu());
@@ -831,6 +962,16 @@ bot.action('admin_set_qris_photo', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'SET_QRIS_PHOTO' };
   ctx.reply('Kirimkan foto QRIS toko:');
+});
+bot.action('admin_set_dana', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_DANA_NUMBER' };
+  ctx.reply('Masukkan Nomor DANA (contoh: 0812xxxxxxx a.n Nama):');
+});
+bot.action('admin_set_gopay', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_GOPAY_NUMBER' };
+  ctx.reply('Masukkan Nomor GoPay (contoh: 0812xxxxxxx a.n Nama):');
 });
 bot.action('admin_set_welcome', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
@@ -1041,6 +1182,23 @@ bot.on('photo', async (ctx) => {
     });
     return;
   }
+  if (state && state.step === 'UPLOAD_SCRIPT_PROOF') {
+    const scriptOrderId = state.scriptOrderId;
+    delete userState[userId];
+    db.get(`SELECT so.*, bs.name as script_name FROM script_orders so JOIN bot_scripts bs ON so.script_id = bs.id WHERE so.id = ?`, [scriptOrderId], (err, order) => {
+      if (!order) return ctx.reply('⚠️ Pesanan script tidak ditemukan.');
+      db.run(`UPDATE script_orders SET proof = ?, status = 'PENDING_REVIEW' WHERE id = ?`, [photoId, scriptOrderId]);
+      ctx.replyWithMarkdown('✅ Bukti transfer diterima! Mohon tunggu admin.');
+      if (adminId) {
+        const reviewText = `🤖 *KONFIRMASI PEMBAYARAN SCRIPT #${scriptOrderId}*\n\n📦 *Script:* ${order.script_name}\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username} (ID: ${order.user_id})`;
+        bot.telegram.sendPhoto(adminId, photoId, {
+          caption: reviewText, parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `scriptapprove_${scriptOrderId}`), Markup.button.callback('❌ Reject', `scriptreject_${scriptOrderId}`)]])
+        }).catch(() => {});
+      }
+    });
+    return;
+  }
   if (state && state.step === 'UPLOAD_PROOF') {
     const orderId = state.orderId;
     delete userState[userId];
@@ -1117,6 +1275,18 @@ bot.on('text', async (ctx) => {
       let buttons = products.map(prod => [Markup.button.callback(`${prod.name} (Rp${prod.price.toLocaleString('id-ID')}) [${prod.stock_count}]`, `buy_${prod.id}`)]);
       buttons.push([Markup.button.callback('🔙 Katalog', 'user_catalog')]);
       ctx.replyWithMarkdown(text, Markup.inlineKeyboard(buttons));
+    });
+    return;
+  }
+
+  if (state.step === 'QTY_CUSTOM_INPUT') {
+    const qty = parseInt(ctx.message.text.trim());
+    delete userState[ctx.from.id];
+    if (!qty || qty < 1) return ctx.reply('⚠️ Jumlah tidak valid, coba lagi lewat menu produk.');
+    db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [state.prodId], (err, res) => {
+      const available = res ? res.stock_count : 0;
+      if (qty > available) return ctx.reply(`⚠️ Stok cuma ${available}, masukkan jumlah lebih kecil.`);
+      renderQtySelector(ctx, state.prodId, qty, false);
     });
     return;
   }
@@ -1222,6 +1392,14 @@ bot.on('text', async (ctx) => {
       db.run(`UPDATE store SET admin_uname = ? WHERE id = 1`, [ctx.message.text.trim()]);
       delete userState[adminId];
       ctx.reply('✅ Username CS diperbarui!');
+    } else if (state.step === 'SET_DANA_NUMBER') {
+      db.run(`UPDATE store SET dana = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Nomor DANA diperbarui!');
+    } else if (state.step === 'SET_GOPAY_NUMBER') {
+      db.run(`UPDATE store SET gopay = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Nomor GoPay diperbarui!');
     } else if (state.step === 'SET_REQ_CHANNEL') {
       db.run(`UPDATE store SET required_channel = ? WHERE id = 1`, [ctx.message.text.trim()]);
       delete userState[adminId];
@@ -1357,8 +1535,8 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
       };
       findScriptOrder(async (scriptOrder) => {
         if (scriptOrder) {
-          db.run(`UPDATE script_orders SET status = 'APPROVED' WHERE id = ?`, [scriptOrder.id]);
-          matchedType = 'script_order'; matchedId = scriptOrder.id;
+          const result = await approveScriptOrderById(scriptOrder.id);
+          if (result.ok) { matchedType = 'script_order'; matchedId = scriptOrder.id; }
           db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [transactionId, matchedType, matchedId, amount, now]);
           return;
         }
