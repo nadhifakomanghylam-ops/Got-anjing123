@@ -57,16 +57,19 @@ db.serialize(() => {
   db.run(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1`, () => {});
   db.run(`ALTER TABLE orders ADD COLUMN casaku_transaction_id TEXT`, () => {});
   db.run(`ALTER TABLE orders ADD COLUMN qris_expires_at TEXT`, () => {});
+  db.run(`ALTER TABLE orders ADD COLUMN qris_message_id TEXT`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS stock_items (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER, content TEXT, status TEXT DEFAULT 'AVAILABLE')`);
   db.run(`CREATE TABLE IF NOT EXISTS vouchers (code TEXT PRIMARY KEY, discount INTEGER, quota INTEGER)`);
   db.run(`CREATE TABLE IF NOT EXISTS topups ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, amount INTEGER, unique_code INTEGER, total_amount INTEGER, status TEXT DEFAULT 'PENDING', proof TEXT, created_at TEXT, casaku_transaction_id TEXT, qris_expires_at TEXT )`);
   db.run(`ALTER TABLE topups ADD COLUMN casaku_transaction_id TEXT`, () => {});
   db.run(`ALTER TABLE topups ADD COLUMN qris_expires_at TEXT`, () => {});
+  db.run(`ALTER TABLE topups ADD COLUMN qris_message_id TEXT`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS auto_reply ( keyword TEXT PRIMARY KEY, reply_type TEXT DEFAULT 'text', content TEXT, file_id TEXT, btn_label TEXT, btn_url TEXT )`);
   db.run(`CREATE TABLE IF NOT EXISTS chat_relay ( admin_msg_id INTEGER PRIMARY KEY, buyer_id INTEGER, buyer_name TEXT )`);
   db.run(`CREATE TABLE IF NOT EXISTS casaku_webhook_log ( transaction_id TEXT PRIMARY KEY, matched_type TEXT, matched_id INTEGER, amount INTEGER, received_at TEXT )`);
   db.run(`CREATE TABLE IF NOT EXISTS bot_scripts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, zip_file_id TEXT, video_file_id TEXT, instruction_text TEXT, stock INTEGER DEFAULT 0)`);
   db.run(`CREATE TABLE IF NOT EXISTS script_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, script_id INTEGER, amount INTEGER, status TEXT DEFAULT 'PENDING', proof TEXT, casaku_transaction_id TEXT, qris_expires_at TEXT, created_at TEXT)`);
+  db.run(`ALTER TABLE script_orders ADD COLUMN qris_message_id TEXT`, () => {});
 
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
@@ -306,13 +309,13 @@ bot.start(async (ctx) => {
       const storeDesc = (DEFAULT_STORE_DESC && DEFAULT_STORE_DESC.trim() !== '') ? DEFAULT_STORE_DESC : (store && store.desc ? store.desc : '');
       const text = `🏬 *${storeName}*\n\n${storeDesc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
       const headerPhoto = (DEFAULT_HEADER_PHOTO && DEFAULT_HEADER_PHOTO.trim() !== '') ? DEFAULT_HEADER_PHOTO : (store && store.photo ? store.photo : '');
-      await sendStoreSong(ctx, store);
       if (headerPhoto) {
         const sent = await ctx.replyWithPhoto(headerPhoto, { caption: text, parse_mode: 'Markdown', ...getStartMenu(store) });
         if (sent) lastBotMsg[ctx.from.id] = { chatId: sent.chat.id, messageId: sent.message_id };
       } else {
         await safeClearAndSend(ctx, text, getStartMenu(store));
       }
+      await sendStoreSong(ctx, store);
     });
   });
 });
@@ -450,6 +453,8 @@ bot.action(/^script_pay_qris_(.+)$/, async (ctx) => {
           safeClearAndSend(ctx, detailText, {
             photo: { source: qris.imageBuffer },
             ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]])
+          }).then((sent) => {
+            if (sent && sent.message_id) db.run(`UPDATE script_orders SET qris_message_id = ? WHERE id = ?`, [sent.message_id, orderId]);
           });
         });
     } catch (e) {
@@ -637,6 +642,8 @@ const processTopUp = async (ctx, amount) => {
         safeClearAndSend(ctx, detailText, {
           photo: { source: qris.imageBuffer },
           ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]])
+        }).then((sent) => {
+          if (sent && sent.message_id) db.run(`UPDATE topups SET qris_message_id = ? WHERE id = ?`, [sent.message_id, topupId]);
         });
       });
   } catch (e) {
@@ -760,6 +767,8 @@ bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
           safeClearAndSend(ctx, detailText, {
             photo: { source: qris.imageBuffer },
             ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]])
+          }).then((sent) => {
+            if (sent && sent.message_id) db.run(`UPDATE orders SET qris_message_id = ? WHERE id = ?`, [sent.message_id, orderId]);
           });
         });
     } catch (e) {
@@ -866,6 +875,7 @@ const approveTopupById = (topupId) => {
       if (topup.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', topup });
       db.run(`UPDATE topups SET status = 'APPROVED' WHERE id = ?`, [topupId]);
       db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [topup.amount, topup.user_id]);
+      if (topup.qris_message_id) bot.telegram.deleteMessage(topup.user_id, topup.qris_message_id).catch(() => {});
       bot.telegram.sendMessage(topup.user_id, `🎉 *TOP UP DIKONFIRMASI!*\n\nSaldo Rp${topup.amount.toLocaleString('id-ID')} telah ditambahkan.`, { parse_mode: 'Markdown' }).catch(() => {});
       resolve({ ok: true, topup });
     });
@@ -918,6 +928,7 @@ const approveOrderById = (orderId) => {
         db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
         db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
         const catatanHtml2 = order.product_note ? formatMaybeLongHtml('📝 <b>CATATAN:</b>', order.product_note) : '';
+        if (order.qris_message_id) bot.telegram.deleteMessage(order.user_id, order.qris_message_id).catch(() => {});
         bot.telegram.sendMessage(order.user_id, `🎉 <b>PEMBAYARAN DIKONFIRMASI!</b>\n\nDetail (#${orderId}):\n<pre>${escapeHtml(stockContents)}</pre>\n\n${catatanHtml2}`, { parse_mode: 'HTML' }).catch(() => {});
         const testiText = `✅ *TRANSAKSI SUKSES*\n\n📦 *Produk:* ${order.product_name} (${order.quantity || 1}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}\n\n_Terima kasih sudah belanja di toko kami!_`;
         postTestiToGroup(testiText, order.proof);
@@ -953,6 +964,7 @@ const approveScriptOrderById = (scriptOrderId) => {
       db.run(`UPDATE script_orders SET status = 'APPROVED' WHERE id = ?`, [scriptOrderId]);
       db.run(`UPDATE bot_scripts SET stock = stock - 1 WHERE id = ?`, [order.script_id]);
       await deliverScriptById(order.user_id, order);
+      if (order.qris_message_id) bot.telegram.deleteMessage(order.user_id, order.qris_message_id).catch(() => {});
       bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN SCRIPT DIKONFIRMASI!*\n\nTerima kasih! Script telah dikirim.`, { parse_mode: 'Markdown' }).catch(() => {});
       const testiText = `✅ *TRANSAKSI SCRIPT SUKSES*\n\n📦 *Script:* ${order.name}\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}\n\n_Terima kasih sudah belanja di toko kami!_`;
       postTestiToGroup(testiText, order.proof);
