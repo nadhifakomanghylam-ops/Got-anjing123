@@ -290,3 +290,37 @@ html, body {
 .loading-spinner {
   text-align: center; padding: 36px; color: var(--hint); font-size: 13px;
 }
+
+/* QRIS PAYMENT */
+.qris-box {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.qris-title { font-size: 15px; font-weight: 700; align-self: flex-start; }
+.qris-image {
+  width: 100%; max-width: 260px;
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px;
+  border: 1px solid var(--card-border);
+}
+.qris-amount { font-size: 21px; font-weight: 800; color: var(--accent); }
+.qris-timer {
+  font-size: 13px; font-weight: 700; color: var(--hint);
+  background: rgba(0,0,0,0.25); padding: 5px 14px; border-radius: 999px;
+}
+.qris-timer.warn { color: var(--danger); }
+.qris-status {
+  font-size: 13.5px; font-weight: 600; color: var(--hint);
+  padding: 8px 0;
+}
+.qris-status.success { color: var(--success); }
+.qris-status.failed { color: var(--danger); }
+
