@@ -13,8 +13,8 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 // gambar publik/imgur/dsb, boleh juga file_id Telegram).
 const DEFAULT_QRIS_PHOTO = ''; // contoh: 'https://i.imgur.com/xxxxxxx.png'
 const DEFAULT_HEADER_PHOTO = ''; // foto banner/header toko, contoh: 'https://i.imgur.com/yyyyyyy.png'
-const DEFAULT_STORE_NAME = '🛍️ TOKO DIGITAL PREMIUM'; // nama toko default
-const DEFAULT_STORE_DESC = 'Selamat datang di toko kami!'; // deskripsi toko default
+const DEFAULT_STORE_NAME = ''; // nama toko default (kosongkan biar ikut Nama Toko yang diatur admin di dashboard)
+const DEFAULT_STORE_DESC = ''; // deskripsi toko default (kosongkan biar ikut Deskripsi yang diatur admin di dashboard)
 
 const getAdminId = () => {
   const raw = process.env.ADMIN_ID;
@@ -73,7 +73,7 @@ db.serialize(() => {
 
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
-      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, ?, ?, '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! 🎉', 'Sampai jumpa {user} 👋')`, [DEFAULT_STORE_NAME, DEFAULT_STORE_DESC]);
+      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, ?, ?, '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! 🎉', 'Sampai jumpa {user} 👋')`, ['🛍️ TOKO DIGITAL PREMIUM', 'Selamat datang di toko kami!']);
     }
   });
 });
@@ -135,6 +135,9 @@ bot.command('cekid', async (ctx) => {
 // Melacak pesan terakhir yang dikirim bot ke tiap user, supaya bisa dihapus
 // walau pesan itu bukan hasil klik tombol (misal setelah user ketik teks bebas).
 const lastBotMsg = {};
+// Melacak pesan lagu (audio) terakhir yang dikirim ke tiap user, biar bisa
+// dihapus otomatis begitu user pindah menu (supaya chat enggak numpuk pesan lagu).
+const lastSongMsg = {};
 
 const safeClearAndSend = async (ctx, text, extra = {}) => {
   const uid = ctx.from && ctx.from.id;
@@ -147,6 +150,12 @@ const safeClearAndSend = async (ctx, text, extra = {}) => {
     if (!(ctx.callbackQuery && ctx.callbackQuery.message && ctx.callbackQuery.message.message_id === prev.messageId)) {
       try { await ctx.telegram.deleteMessage(prev.chatId, prev.messageId); } catch (e) {}
     }
+  }
+  // Hapus juga pesan lagu terakhir (kalau ada), biar enggak numpuk pas pindah menu
+  if (uid && lastSongMsg[uid]) {
+    const prevSong = lastSongMsg[uid];
+    delete lastSongMsg[uid];
+    try { await ctx.telegram.deleteMessage(prevSong.chatId, prevSong.messageId); } catch (e) {}
   }
   let sent;
   try {
@@ -296,7 +305,11 @@ const getStartMenu = (store) => {
 // saat user pindah menu.
 const sendStoreSong = async (ctx, store) => {
   if (store && store.song && String(store.song).trim() !== '') {
-    try { await ctx.replyWithAudio(store.song); } catch (e) { console.log('Gagal kirim lagu:', e.message); }
+    try {
+      const sentSong = await ctx.replyWithAudio(store.song);
+      const uid = ctx.from && ctx.from.id;
+      if (uid && sentSong && sentSong.message_id) lastSongMsg[uid] = { chatId: sentSong.chat.id, messageId: sentSong.message_id };
+    } catch (e) { console.log('Gagal kirim lagu:', e.message); }
   }
 };
 
@@ -1183,8 +1196,22 @@ bot.action('admin_add_stock', (ctx) => {
 });
 bot.action(/^addstock_(.+)$/, (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
+  const prodId = ctx.match[1];
+  safeClearAndSend(ctx, '📦 TAMBAH STOK\n\nPilih metode:', Markup.inlineKeyboard([
+    [Markup.button.callback('📋 Paste List (per baris = 1 stok)', `addstockmode_list_${prodId}`)],
+    [Markup.button.callback('🔢 Jumlah Angka (tanpa kode unik)', `addstockmode_qty_${prodId}`)],
+    [Markup.button.callback('🔙 Batal', 'admin_add_stock')]
+  ]));
+});
+bot.action(/^addstockmode_list_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'ADD_STOCK_BULK', prodId: ctx.match[1] };
   safeClearAndSend(ctx, '📥 TAMBAH STOK MASSAL\n\nPaste banyak akun/kode (setiap baris = 1 stok):');
+});
+bot.action(/^addstockmode_qty_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_STOCK_QTY', prodId: ctx.match[1] };
+  safeClearAndSend(ctx, '🔢 TAMBAH STOK (JUMLAH)\n\nMasukkan jumlah stok yang mau ditambahkan (contoh: 100):');
 });
 bot.action('admin_autoreply_type', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
@@ -1548,6 +1575,18 @@ bot.on('text', async (ctx) => {
       stmt.finalize();
       userState[adminId] = { step: 'ADD_STOCK_NOTE', prodId: state.prodId, inserted };
       safeClearAndSend(ctx, `✅ *${inserted} stok* ditambahkan!\n\n📝 Kirim *catatan/arahan* untuk pembeli (atau ketik *lewati*):`, { parse_mode: 'Markdown' });
+    } else if (state.step === 'ADD_STOCK_QTY') {
+      const qty = parseInt(ctx.message.text.trim());
+      if (isNaN(qty) || qty <= 0) return safeClearAndSend(ctx, '⚠️ Masukkan angka yang valid (contoh: 100).');
+      if (qty > 100000) return safeClearAndSend(ctx, '⚠️ Maksimal 100.000 per kali tambah.');
+      db.get(`SELECT name FROM products WHERE id = ?`, [state.prodId], (err, prod) => {
+        const label = prod ? prod.name : 'Produk';
+        const stmt = db.prepare(`INSERT INTO stock_items (product_id, content) VALUES (?, ?)`);
+        for (let i = 0; i < qty; i++) stmt.run(state.prodId, label);
+        stmt.finalize();
+        userState[adminId] = { step: 'ADD_STOCK_NOTE', prodId: state.prodId, inserted: qty };
+        safeClearAndSend(ctx, `✅ *${qty} stok* ditambahkan ke *${label}*!\n\n📝 Kirim *catatan/arahan* untuk pembeli (atau ketik *lewati*):`, { parse_mode: 'Markdown' });
+      });
     } else if (state.step === 'ADD_STOCK_NOTE') {
       const note = ctx.message.text.trim();
       if (note.toLowerCase() === 'lewati') {
