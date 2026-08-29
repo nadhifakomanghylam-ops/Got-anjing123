@@ -13,7 +13,7 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 // gambar publik/imgur/dsb, boleh juga file_id Telegram).
 const DEFAULT_QRIS_PHOTO = ''; // contoh: 'https://cdn.phototourl.com/free/2026-08-29-0bc7b073-83d3-48ee-9569-b6d103e971a3.png'
 const DEFAULT_HEADER_PHOTO = ''; // foto banner/header toko, contoh: 'https://cdn.phototourl.com/free/2026-08-29-a0e5f55c-145f-4c6b-9e91-eae94161ac42.png'
-const DEFAULT_STORE_NAME = '🛍️ TOKO DIGITAL PREMIUM'; // nama toko default
+const DEFAULT_STORE_NAME = '🛍️ TOKO DIGITAL FISHIT'; // nama toko default
 const DEFAULT_STORE_DESC = 'Selamat datang di morvane !'; // deskripsi toko default
 
 const getAdminId = () => {
