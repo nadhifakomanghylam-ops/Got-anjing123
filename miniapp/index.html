@@ -5,16 +5,26 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>Toko Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Creepster&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div class="scanlines"></div>
   <div id="app">
+
+    <!-- PENDING TX BANNER -->
+    <div class="pending-banner hidden" id="pendingBanner">
+      <span id="pendingBannerText">⚠ Ada transaksi belum kelar...</span>
+      <button class="btn-mini" id="btnGotoPending">Lanjutkan »</button>
+    </div>
 
     <!-- HEADER -->
     <header class="app-header">
+      <button class="admin-dots hidden" id="btnAdminDots" title="Dashboard Admin">⋮</button>
       <div class="store-avatar" id="storeAvatar">
         <img id="storePhoto" class="store-photo" src="" alt="" style="display:none" />
-        <span id="storeInitial">🛍️</span>
+        <span id="storeInitial">☠️</span>
       </div>
       <div class="store-info">
         <h1 id="storeName">Memuat...</h1>
@@ -25,7 +35,7 @@
     <!-- BALANCE CARD -->
     <section class="balance-card" id="balanceCard">
       <div>
-        <div class="balance-label">💳 Saldo Kamu</div>
+        <div class="balance-label">// SALDO_KAMU</div>
         <div class="balance-amount" id="balanceAmount">Rp0</div>
       </div>
       <div class="tier-badge" id="tierBadge">Bronze</div>
@@ -42,14 +52,15 @@
           <button class="quick-btn" data-nav="saldo" data-color="green"><span class="icon-circle">💳</span><span>Top Up</span></button>
           <button class="quick-btn" data-nav="referral" data-color="purple"><span class="icon-circle">🔗</span><span>Referral</span></button>
           <button class="quick-btn" data-nav="stok" data-color="cyan"><span class="icon-circle">📊</span><span>Stok Live</span></button>
-          <button class="quick-btn" id="btnCS" data-color="pink"><span class="icon-circle">📞</span><span>CS</span></button>
+          <button class="quick-btn" data-nav="testimoni" data-color="pink"><span class="icon-circle">💀</span><span>Testimoni</span></button>
         </div>
+        <button class="btn-cs-float" id="btnCS">📞 Hubungi CS</button>
       </section>
 
       <!-- KATALOG -->
       <section class="view hidden" id="view-katalog">
         <div class="search-bar">
-          <input type="text" id="searchInput" placeholder="🔍 Cari produk..." />
+          <input type="text" id="searchInput" placeholder="&gt; cari_produk..." />
         </div>
         <div id="productList" class="product-list"></div>
       </section>
@@ -74,7 +85,7 @@
           <button class="topup-btn" data-amt="50000">➕ Rp50.000</button>
           <button class="topup-btn" data-amt="100000">➕ Rp100.000</button>
         </div>
-        <p class="hint-text">Tap nominal, kamu bakal diarahkan ke chat bot buat lanjutin pembayaran (QRIS/DANA/GoPay).</p>
+        <p class="hint-text">Tap nominal, kamu bakal diarahkan buat lanjutin pembayaran (QRIS).</p>
       </section>
 
       <!-- REFERRAL -->
@@ -90,6 +101,11 @@
       <!-- STOK LIVE -->
       <section class="view hidden" id="view-stok">
         <div id="stockList" class="product-list"></div>
+      </section>
+
+      <!-- TESTIMONI -->
+      <section class="view hidden" id="view-testimoni">
+        <div id="testimoniList" class="testimoni-list"></div>
       </section>
 
       <!-- QRIS PAYMENT -->
@@ -115,6 +131,50 @@
     <button class="nav-btn" data-nav="saldo">💳<span>Saldo</span></button>
     <button class="nav-btn" data-nav="referral">🔗<span>Referral</span></button>
   </nav>
+
+  <!-- RATING MODAL -->
+  <div class="modal-overlay hidden" id="ratingModal">
+    <div class="modal-box">
+      <div class="modal-title">💀 Kasih Rating Pesanan</div>
+      <div class="star-picker" id="starPicker">
+        <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
+      </div>
+      <textarea id="ratingComment" class="rating-comment" placeholder="Komentar (opsional)..." maxlength="300"></textarea>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCancelRating">Batal</button>
+        <button class="btn-primary" id="btnSubmitRating">Kirim</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADMIN DRAWER -->
+  <div class="drawer-overlay hidden" id="adminOverlay"></div>
+  <aside class="admin-drawer" id="adminDrawer">
+    <div class="drawer-header">
+      <span>⋮ DASHBOARD_ADMIN</span>
+      <button class="drawer-close" id="btnCloseAdmin">✕</button>
+    </div>
+    <div class="drawer-tabs">
+      <button class="drawer-tab active" data-tab="produk">Produk</button>
+      <button class="drawer-tab" data-tab="toko">Toko</button>
+      <button class="drawer-tab" data-tab="testimoni">Testimoni</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-pane" id="pane-produk">
+        <div id="adminProductList" class="admin-list"></div>
+      </div>
+      <div class="drawer-pane hidden" id="pane-toko">
+        <label class="admin-label">Nama Toko</label>
+        <input type="text" id="adminStoreName" class="admin-input" />
+        <label class="admin-label">Deskripsi Toko</label>
+        <textarea id="adminStoreDesc" class="admin-input admin-textarea"></textarea>
+        <button class="btn-primary" id="btnSaveStore">💾 Simpan</button>
+      </div>
+      <div class="drawer-pane hidden" id="pane-testimoni">
+        <div id="adminRatingList" class="admin-list"></div>
+      </div>
+    </div>
+  </aside>
 
   <script src="app.js"></script>
 </body>
