@@ -56,6 +56,7 @@ db.serialize(() => {
   db.run(`ALTER TABLE store ADD COLUMN song TEXT`, () => {});
   db.run(`ALTER TABLE store ADD COLUMN welcome_msg TEXT`, () => {});
   db.run(`ALTER TABLE store ADD COLUMN leave_msg TEXT`, () => {});
+  db.run(`ALTER TABLE store ADD COLUMN required_group TEXT`, () => {});
   
   db.run(`CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
@@ -296,12 +297,36 @@ const getAdminMenu = () => {
     [Markup.button.callback('👋 Set Welcome Msg', 'admin_set_welcome'), Markup.button.callback('👋 Set Leave Msg', 'admin_set_leave')],
     [Markup.button.callback('🎵 Set Lagu', 'admin_set_song'), Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply_type')],
     [Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply'), Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname')],
-    [Markup.button.callback('🔒 Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group')],
+    [Markup.button.callback('🔒 Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('👥 Wajib Join Grup', 'admin_set_req_group')],
+    [Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group')],
     [Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
     [Markup.button.callback('👤 Kelola Saldo/Tier User', 'admin_manage_user')],
     [Markup.button.callback('📢 Broadcast Chat', 'admin_broadcast_menu'), Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button')],
     [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
   ]);
+};
+
+// Ubah username/link channel atau grup jadi URL t.me yang valid
+const buildJoinUrl = (raw) => {
+  if (!raw || !String(raw).trim()) return null;
+  let v = String(raw).trim();
+  if (v.startsWith('http://') || v.startsWith('https://')) return v;
+  if (v.startsWith('@')) v = v.slice(1);
+  if (v.startsWith('-100')) return null; // ID numerik tidak bisa dijadikan link langsung
+  return `https://t.me/${v}`;
+};
+
+// SAMBUTAN AWAL /start: 3 tombol (Channel, Grup, Menu Utama)
+const getStartMenu = (store) => {
+  const rows = [];
+  const chUrl = buildJoinUrl(store && store.required_channel);
+  const grUrl = buildJoinUrl(store && store.required_group);
+  if (chUrl) rows.push(Markup.button.url('📢 Channel', chUrl));
+  if (grUrl) rows.push(Markup.button.url('👥 Grup', grUrl));
+  const buttons = [];
+  if (rows.length) buttons.push(rows);
+  buttons.push([Markup.button.callback('🏠 Main Menu', 'main_menu')]);
+  return Markup.inlineKeyboard(buttons);
 };
 
 bot.start(async (ctx) => {
@@ -310,9 +335,9 @@ bot.start(async (ctx) => {
     getUserInfoLine(ctx, (infoLine) => {
       const text = `🏬 *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
       if (store && store.photo) {
-        ctx.replyWithPhoto(store.photo, { caption: text, parse_mode: 'Markdown', ...getMainMenu(ctx.from.id) });
+        ctx.replyWithPhoto(store.photo, { caption: text, parse_mode: 'Markdown', ...getStartMenu(store) });
       } else {
-        ctx.replyWithMarkdown(text, getMainMenu(ctx.from.id));
+        ctx.replyWithMarkdown(text, getStartMenu(store));
       }
     });
   });
@@ -912,6 +937,12 @@ bot.action('admin_set_log_group', (ctx) => {
   ctx.reply('Masukkan ID Grup Log/Testi (Contoh: -10012345678):');
 });
 
+bot.action('admin_set_req_group', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_REQ_GROUP' };
+  ctx.reply('Masukkan Username Grup (Contoh: @GrupToko) atau link https://t.me/... yang akan muncul di tombol "👥 Grup" saat /start:');
+});
+
 bot.action('admin_add_voucher', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   userState[getAdminId()] = { step: 'ADD_VOUCHER_CODE' };
@@ -1300,6 +1331,10 @@ bot.on('text', async (ctx) => {
       db.run(`UPDATE store SET log_group_id = ? WHERE id = 1`, [ctx.message.text.trim()]);
       delete userState[adminId];
       ctx.reply('✅ ID Grup Log/Testi berhasil diperbarui!');
+    } else if (state.step === 'SET_REQ_GROUP') {
+      db.run(`UPDATE store SET required_group = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Link Grup berhasil diperbarui! Tombol "👥 Grup" di /start sekarang mengarah ke sini.');
     } else if (state.step === 'ADD_VOUCHER_CODE') {
       userState[adminId] = { step: 'ADD_VOUCHER_DISC', code: ctx.message.text.trim().toUpperCase() };
       ctx.reply('Masukkan Potongan Harga Voucher (Angka saja):');
