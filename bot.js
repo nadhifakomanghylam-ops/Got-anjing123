@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const express = require('express');
 const { verifyCasakuSignature, generateDynamicQRIS } = require('./casaku');
+const { launchRentedBot, stopRentedBot } = require('./rentedBotManager');
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -143,7 +144,22 @@ db.serialize(() => {
     expired_at TEXT,
     status TEXT DEFAULT 'ACTIVE'
   )`);
-  
+
+  // TABEL FITUR SEWA BOT
+  db.run(`CREATE TABLE IF NOT EXISTS rented_bots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    bot_token TEXT,
+    bot_username TEXT,
+    admin_id INTEGER,
+    price INTEGER DEFAULT 0,
+    proof TEXT,
+    status TEXT DEFAULT 'PENDING_REVIEW',
+    created_at TEXT
+  )`);
+  db.run(`ALTER TABLE store ADD COLUMN rental_price INTEGER DEFAULT 0`, () => {});
+
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
       db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, '🛍️ TOKO DIGITAL PREMIUM', 'Selamat datang di toko kami!', '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! 🎉', 'Sampai jumpa {user} 👋')`);
@@ -284,7 +300,7 @@ const getMainMenu = (userId) => {
   if (Number(userId) === adminId && adminId !== 0) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
   }
-  buttons.push([Markup.button.callback('🎵 Lagu', 'user_lagu')]);
+  buttons.push([Markup.button.callback('🎵 Lagu', 'user_lagu'), Markup.button.callback('🤖 Sewa Bot', 'user_sewa_bot')]);
   return Markup.inlineKeyboard(buttons);
 };
 
@@ -302,9 +318,16 @@ const getAdminMenu = () => {
     [Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
     [Markup.button.callback('👤 Kelola Saldo/Tier User', 'admin_manage_user')],
     [Markup.button.callback('📢 Broadcast Chat', 'admin_broadcast_menu'), Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button')],
+    [Markup.button.callback('🤖 Kelola Sewa Bot', 'admin_rental_menu')],
     [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
   ]);
 };
+
+const getRentalAdminMenu = () => Markup.inlineKeyboard([
+  [Markup.button.callback('💵 Set Harga Sewa', 'admin_set_rental_price')],
+  [Markup.button.callback('📋 Daftar Bot Sewaan', 'admin_list_rentals')],
+  [Markup.button.callback('🔙 Kembali', 'admin_dashboard')]
+]);
 
 // Ubah username/link channel atau grup jadi URL t.me yang valid
 const buildJoinUrl = (raw) => {
@@ -411,6 +434,89 @@ bot.action('user_lagu', async (ctx) => {
     }
   });
 });
+
+// ==================== FITUR SEWA BOT ====================
+bot.action('user_sewa_bot', async (ctx) => {
+  ctx.answerCbQuery();
+  db.get(`SELECT rental_price, qris FROM store WHERE id = 1`, async (err, store) => {
+    const price = store && store.rental_price ? store.rental_price : 0;
+    if (!price) {
+      return await safeClearAndSend(ctx, `🤖 *SEWA BOT*\n\nLayanan sewa bot belum tersedia saat ini. Hubungi admin untuk info lebih lanjut.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+    }
+    const text = `🤖 *SEWA BOT TOKO*\n\n` +
+      `Dapatkan bot toko sendiri (kosongan, tinggal atur produk & stok sendiri)!\n\n` +
+      `💰 *Harga:* Rp${price.toLocaleString('id-ID')}\n\n` +
+      `Setelah transfer, kirim *foto bukti transfer* ke chat ini. Admin akan verifikasi, lalu kamu diminta kirim *Bot Token* & *Admin ID* bot kamu sendiri.`;
+    userState[ctx.from.id] = { step: 'UPLOAD_RENTAL_PROOF' };
+    if (store.qris) {
+      await safeClearAndSend(ctx, text, { photo: store.qris });
+    } else {
+      await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+    }
+  });
+});
+
+bot.action(/^rentalapprove_(\d+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const rentalId = ctx.match[1];
+  db.get(`SELECT * FROM rented_bots WHERE id = ?`, [rentalId], (err, rental) => {
+    if (!rental) return ctx.answerCbQuery('Data tidak ditemukan.', { show_alert: true });
+    db.run(`UPDATE rented_bots SET status = 'PENDING_TOKEN' WHERE id = ?`, [rentalId]);
+    userState[rental.user_id] = { step: 'RENTAL_TOKEN', rentalId };
+    bot.telegram.sendMessage(rental.user_id, `✅ *Pembayaran sewa bot dikonfirmasi!*\n\nSekarang kirim *Bot Token* bot Telegram kamu (dapatkan dari @BotFather):`, { parse_mode: 'Markdown' }).catch(() => {});
+    ctx.answerCbQuery('✅ Disetujui, user diminta kirim token.', { show_alert: true });
+    ctx.editMessageCaption ? ctx.editMessageCaption(`✅ APPROVED - Sewa Bot #${rentalId}`).catch(() => {}) : null;
+  });
+});
+
+bot.action(/^rentalreject_(\d+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const rentalId = ctx.match[1];
+  db.get(`SELECT * FROM rented_bots WHERE id = ?`, [rentalId], (err, rental) => {
+    if (!rental) return ctx.answerCbQuery('Data tidak ditemukan.', { show_alert: true });
+    db.run(`UPDATE rented_bots SET status = 'REJECTED' WHERE id = ?`, [rentalId]);
+    bot.telegram.sendMessage(rental.user_id, `❌ *Bukti transfer sewa bot ditolak.*\n\nHubungi CS bila ada kendala.`, { parse_mode: 'Markdown' }).catch(() => {});
+    ctx.answerCbQuery('Ditolak.', { show_alert: true });
+    ctx.editMessageCaption ? ctx.editMessageCaption(`❌ REJECTED - Sewa Bot #${rentalId}`).catch(() => {}) : null;
+  });
+});
+
+bot.action('admin_rental_menu', async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  await safeClearAndSend(ctx, '🤖 *KELOLA SEWA BOT*', getRentalAdminMenu());
+});
+
+bot.action('admin_set_rental_price', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_RENTAL_PRICE' };
+  ctx.reply('Masukkan Harga Sewa Bot (angka saja):');
+});
+
+bot.action('admin_list_rentals', async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM rented_bots WHERE status = 'ACTIVE' ORDER BY id DESC`, async (err, rows) => {
+    if (!rows || rows.length === 0) {
+      return await safeClearAndSend(ctx, '📋 *DAFTAR BOT SEWAAN*\n\nBelum ada bot sewaan yang aktif.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'admin_rental_menu')]]));
+    }
+    const buttons = rows.map(r => [Markup.button.callback(`🛑 Nonaktifkan @${r.bot_username || r.id}`, `rental_stop_${r.id}`)]);
+    buttons.push([Markup.button.callback('🔙 Kembali', 'admin_rental_menu')]);
+    let text = `📋 *DAFTAR BOT SEWAAN AKTIF (${rows.length})*\n\n`;
+    rows.forEach(r => {
+      text += `• @${r.bot_username || '-'} (Admin ID: \`${r.admin_id}\`, Penyewa: ${r.username})\n`;
+    });
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
+  });
+});
+
+bot.action(/^rental_stop_(\d+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const rentalId = ctx.match[1];
+  stopRentedBot(rentalId);
+  db.run(`UPDATE rented_bots SET status = 'STOPPED' WHERE id = ?`, [rentalId]);
+  ctx.answerCbQuery('✅ Bot sewaan dinonaktifkan.', { show_alert: true });
+  await safeClearAndSend(ctx, '✅ Bot sewaan berhasil dinonaktifkan.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'admin_rental_menu')]]));
+});
+// ================== AKHIR FITUR SEWA BOT ==================
 
 bot.action('user_faq', async (ctx) => {
   ctx.answerCbQuery();
@@ -1124,6 +1230,32 @@ bot.on('photo', async (ctx) => {
     return;
   }
 
+  const rentalState = userState[userId];
+  if (rentalState && rentalState.step === 'UPLOAD_RENTAL_PROOF') {
+    delete userState[userId];
+    const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
+    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    db.get(`SELECT rental_price FROM store WHERE id = 1`, (err, store) => {
+      const price = store ? store.rental_price : 0;
+      db.run(`INSERT INTO rented_bots (user_id, username, price, proof, status, created_at) VALUES (?, ?, ?, ?, 'PENDING_REVIEW', ?)`,
+        [userId, username, price, photoId, now], function (err) {
+          const rentalId = this.lastID;
+          ctx.replyWithMarkdown('✅ Bukti transfer sewa bot diterima! Mohon tunggu konfirmasi admin.');
+          if (adminId) {
+            bot.telegram.sendPhoto(adminId, photoId, {
+              caption: `🤖 *KONFIRMASI SEWA BOT #${rentalId}*\n\n💰 *Nominal:* Rp${(price || 0).toLocaleString('id-ID')}\n👤 *User:* ${username} (ID: ${userId})`,
+              parse_mode: 'Markdown',
+              ...Markup.inlineKeyboard([[
+                Markup.button.callback('✅ Approve', `rentalapprove_${rentalId}`),
+                Markup.button.callback('❌ Reject', `rentalreject_${rentalId}`)
+              ]])
+            }).catch(() => {});
+          }
+        });
+    });
+    return;
+  }
+
   const state = userState[userId];
   if (state && state.step === 'UPLOAD_TOPUP_PROOF') {
     const topupId = state.topupId;
@@ -1233,6 +1365,53 @@ bot.on('text', async (ctx) => {
       }
     });
     return;
+  }
+
+  if (state.step === 'RENTAL_TOKEN') {
+    const token = ctx.message.text.trim();
+    if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(token)) {
+      return ctx.reply('⚠️ Format Bot Token tidak valid. Pastikan kamu copy langsung dari @BotFather.');
+    }
+    let botInfo;
+    try {
+      const testBot = new Telegraf(token);
+      botInfo = await testBot.telegram.getMe();
+    } catch (e) {
+      return ctx.reply('⚠️ Bot Token tidak valid atau bot sudah dipakai di tempat lain. Coba kirim ulang.');
+    }
+    db.run(`UPDATE rented_bots SET bot_token = ?, bot_username = ? WHERE id = ?`, [token, botInfo.username, state.rentalId]);
+    userState[userId] = { step: 'RENTAL_ADMINID', rentalId: state.rentalId };
+    return ctx.reply(`✅ Token valid untuk bot @${botInfo.username}.\n\nSekarang kirim *Admin ID* (ID Telegram kamu sendiri) yang akan jadi admin bot itu. Cek ID kamu lewat tombol "🆔 Cek ID" di menu utama kalau belum tahu.`, { parse_mode: 'Markdown' });
+  }
+
+  if (state.step === 'RENTAL_ADMINID') {
+    const rentalAdminId = parseInt(ctx.message.text.trim().replace(/[^0-9]/g, ''));
+    if (!rentalAdminId || isNaN(rentalAdminId)) return ctx.reply('⚠️ Masukkan Admin ID yang valid (angka saja).');
+    delete userState[userId];
+
+    db.run(`UPDATE rented_bots SET admin_id = ?, status = 'ACTIVE' WHERE id = ?`, [rentalAdminId, state.rentalId], (err) => {
+      if (err) return ctx.reply('⚠️ Gagal menyimpan data sewa bot.');
+      db.get(`SELECT * FROM rented_bots WHERE id = ?`, [state.rentalId], (err, rental) => {
+        try {
+          launchRentedBot(rental.bot_token, rental.admin_id, rental.id, dbDir);
+          ctx.replyWithMarkdown(`🎉 *Bot Sewaan Aktif!*\n\nBot kamu @${rental.bot_username} sudah jalan. Buka bot itu dan ketik /start, lalu masuk ke Dashboard Admin untuk mulai atur produk & stok sendiri.`);
+          if (getAdminId()) {
+            bot.telegram.sendMessage(getAdminId(), `🤖 Bot sewaan baru aktif: @${rental.bot_username} (Penyewa: ${rental.username})`).catch(() => {});
+          }
+        } catch (e) {
+          ctx.reply('⚠️ Gagal menjalankan bot sewaan. Hubungi admin.');
+        }
+      });
+    });
+    return;
+  }
+
+  if (Number(userId) === adminId && state.step === 'SET_RENTAL_PRICE') {
+    const price = parseInt(ctx.message.text.trim());
+    if (isNaN(price)) return ctx.reply('⚠️ Masukkan angka yang valid!');
+    db.run(`UPDATE store SET rental_price = ? WHERE id = 1`, [price]);
+    delete userState[adminId];
+    return ctx.reply(`✅ Harga sewa bot diatur ke Rp${price.toLocaleString('id-ID')}!`);
   }
 
   if (state.step === 'SEARCH_PRODUCT') {
@@ -1544,5 +1723,19 @@ app.get('/', (req, res) => res.send('Bot is running.'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 Webhook server listening on port ${PORT}`));
 
-bot.launch().then(setupCommandMenu);
+const relaunchActiveRentals = () => {
+  db.all(`SELECT * FROM rented_bots WHERE status = 'ACTIVE'`, (err, rows) => {
+    if (!rows || rows.length === 0) return;
+    rows.forEach((rental) => {
+      try {
+        launchRentedBot(rental.bot_token, rental.admin_id, rental.id, dbDir);
+      } catch (e) {
+        console.log(`⚠️ Gagal relaunch bot sewaan #${rental.id}:`, e.message);
+      }
+    });
+    console.log(`🤖 ${rows.length} bot sewaan berhasil di-relaunch.`);
+  });
+};
+
+bot.launch().then(setupCommandMenu).then(relaunchActiveRentals);
 console.log('Bot Telegram Running Full Edition...');
