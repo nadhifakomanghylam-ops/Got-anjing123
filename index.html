@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Toko Mini App</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+
+    <!-- HEADER -->
+    <header class="app-header">
+      <div class="store-avatar" id="storeAvatar">
+        <img id="storePhoto" class="store-photo" src="" alt="" style="display:none" />
+        <span id="storeInitial">🛍️</span>
+      </div>
+      <div class="store-info">
+        <h1 id="storeName">Memuat...</h1>
+        <p id="storeDesc"></p>
+      </div>
+    </header>
+
+    <!-- BALANCE CARD -->
+    <section class="balance-card" id="balanceCard">
+      <div>
+        <div class="balance-label">💳 Saldo Kamu</div>
+        <div class="balance-amount" id="balanceAmount">Rp0</div>
+      </div>
+      <div class="tier-badge" id="tierBadge">Bronze</div>
+    </section>
+
+    <!-- MAIN VIEWS -->
+    <main id="views">
+
+      <!-- HOME -->
+      <section class="view" id="view-home">
+        <div class="quick-grid">
+          <button class="quick-btn" data-nav="katalog" data-color="blue"><span class="icon-circle">🛒</span><span>Katalog</span></button>
+          <button class="quick-btn" data-nav="pesanan" data-color="amber"><span class="icon-circle">📦</span><span>Pesanan</span></button>
+          <button class="quick-btn" data-nav="saldo" data-color="green"><span class="icon-circle">💳</span><span>Top Up</span></button>
+          <button class="quick-btn" data-nav="referral" data-color="purple"><span class="icon-circle">🔗</span><span>Referral</span></button>
+          <button class="quick-btn" data-nav="stok" data-color="cyan"><span class="icon-circle">📊</span><span>Stok Live</span></button>
+          <button class="quick-btn" id="btnCS" data-color="pink"><span class="icon-circle">📞</span><span>CS</span></button>
+        </div>
+      </section>
+
+      <!-- KATALOG -->
+      <section class="view hidden" id="view-katalog">
+        <div class="search-bar">
+          <input type="text" id="searchInput" placeholder="🔍 Cari produk..." />
+        </div>
+        <div id="productList" class="product-list"></div>
+      </section>
+
+      <!-- PRODUCT DETAIL -->
+      <section class="view hidden" id="view-detail">
+        <div id="productDetail" class="product-detail"></div>
+      </section>
+
+      <!-- PESANAN -->
+      <section class="view hidden" id="view-pesanan">
+        <div id="orderList" class="order-list"></div>
+      </section>
+
+      <!-- SALDO / TOPUP -->
+      <section class="view hidden" id="view-saldo">
+        <div class="topup-grid">
+          <button class="topup-btn" data-amt="1000">➕ Rp1.000</button>
+          <button class="topup-btn" data-amt="5000">➕ Rp5.000</button>
+          <button class="topup-btn" data-amt="10000">➕ Rp10.000</button>
+          <button class="topup-btn" data-amt="25000">➕ Rp25.000</button>
+          <button class="topup-btn" data-amt="50000">➕ Rp50.000</button>
+          <button class="topup-btn" data-amt="100000">➕ Rp100.000</button>
+        </div>
+        <p class="hint-text">Tap nominal, kamu bakal diarahkan ke chat bot buat lanjutin pembayaran (QRIS/DANA/GoPay).</p>
+      </section>
+
+      <!-- REFERRAL -->
+      <section class="view hidden" id="view-referral">
+        <div class="referral-card">
+          <div class="referral-title">🔗 Link Referral Kamu</div>
+          <div class="referral-link" id="referralLink">-</div>
+          <button class="btn-primary" id="btnCopyRef">📋 Salin Link</button>
+          <div class="referral-count" id="referralCount">0 orang diundang</div>
+        </div>
+      </section>
+
+      <!-- STOK LIVE -->
+      <section class="view hidden" id="view-stok">
+        <div id="stockList" class="product-list"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-nav="home">🏠<span>Home</span></button>
+    <button class="nav-btn" data-nav="katalog">🛒<span>Katalog</span></button>
+    <button class="nav-btn" data-nav="pesanan">📦<span>Pesanan</span></button>
+    <button class="nav-btn" data-nav="saldo">💳<span>Saldo</span></button>
+    <button class="nav-btn" data-nav="referral">🔗<span>Referral</span></button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
