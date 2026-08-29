@@ -1,4 +1,4 @@
-lrequire('dotenv').config();
+require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
@@ -21,7 +21,7 @@ try {
     console.log(`Folder DB_PATH "${dbDir}" belum ada, berhasil dibuat.`);
   }
 } catch (e) {
-  console.log(`️ Gagal membuat folder DB_PATH "${dbDir}":`, e.message);
+  console.log(`⚠️ Gagal membuat folder DB_PATH "${dbDir}":`, e.message);
 }
 const dbPath = path.join(dbDir, 'database.db');
 console.log('Menggunakan database di:', dbPath);
@@ -148,7 +148,7 @@ const getUserInfoLine = (ctx, cb) => {
     let balanceDisplay = 'Rp0';
     if (tier === 'Owner' || userId === getAdminId()) balanceDisplay = '∞ (Unlimited)';
     else if (row) balanceDisplay = `Rp${(row.balance || 0).toLocaleString('id-ID')}`;
-    const card = `✨ *INFORMASI BUYER*\n *Username:* ${username}\n🆔 *ID Telegram:* \`${userId}\`\n💳 *Saldo:* ${balanceDisplay}\n🏷️ *Tier Status:* *${tier}*`;
+    const card = `✨ *INFORMASI BUYER*\n👤 *Username:* ${username}\n🆔 *ID Telegram:* \`${userId}\`\n💳 *Saldo:* ${balanceDisplay}\n🏷️ *Tier Status:* *${tier}*`;
     cb(card);
   });
 };
@@ -192,7 +192,7 @@ const getMainMenu = (userId) => {
 
 const getAdminMenu = () => {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('📊 Statistik', 'admin_stats'), Markup.button.callback(' Backup DB', 'admin_backup')],
+    [Markup.button.callback('📊 Statistik', 'admin_stats'), Markup.button.callback('💾 Backup DB', 'admin_backup')],
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
     [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🧾 Set Foto QRIS', 'admin_set_qris_photo')],
@@ -201,11 +201,11 @@ const getAdminMenu = () => {
     [Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply'), Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname')],
     [Markup.button.callback('🔒 Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('👥 Wajib Join Grup', 'admin_set_req_group')],
     [Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group')],
-    [Markup.button.callback(' Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
+    [Markup.button.callback('🎁 Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
     [Markup.button.callback('👤 Kelola Saldo/Tier User', 'admin_manage_user')],
     [Markup.button.callback('📢 Broadcast Chat', 'admin_broadcast_menu'), Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button')],
     [Markup.button.callback('📦 Jual Script Bot', 'admin_script_menu')],
-    [Markup.button.callback(' Menu Utama', 'main_menu')]
+    [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
   ]);
 };
 
@@ -245,8 +245,10 @@ bot.start(async (ctx) => {
       // AUTO KIRIM LAGU SETELAH MENU UTAMA
       if (store && store.song) {
         try {
-          await ctx.replyWithAudio(store.song, { caption: '🎵 *Auto-playing Music*\n\nSelamat menikmati!' , parse_mode: 'Markdown' });
-        } catch (e) { console.log('Gagal kirim lagu auto:', e.message); }
+          await ctx.replyWithAudio(store.song, { caption: '🎵 *Auto-playing Music*\n\nSelamat menikmati!', parse_mode: 'Markdown' });
+        } catch (e) { 
+          console.log('Gagal kirim lagu auto:', e.message); 
+        }
       }
     });
   });
@@ -266,7 +268,7 @@ bot.action('main_menu', async (ctx) => {
 bot.action('user_contact', async (ctx) => {
   ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'CS_CHAT' };
-  await safeClearAndSend(ctx, ` *CUSTOMER SERVICE*\n\nSilakan ketik pesan atau keluhan Anda di chat ini.\nAdmin akan membalas pesan Anda secara langsung melalui bot ini.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+  await safeClearAndSend(ctx, `📞 *CUSTOMER SERVICE*\n\nSilakan ketik pesan atau keluhan Anda di chat ini.\nAdmin akan membalas pesan Anda secara langsung melalui bot ini.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
 });
 
 // === HANDLER SCRIPT BOT (USER) ===
@@ -276,13 +278,15 @@ bot.action('user_script_menu', async (ctx) => {
     if (!script || !script.name) {
       return safeClearAndSend(ctx, `⚠️ Script Bot belum tersedia saat ini.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
     }
-    let text = ` *SCRIPT BOT PREMIUM*\n\n📝 *Nama:* ${script.name}\n💰 *Harga:* Rp${script.price.toLocaleString('id-ID')}\n📊 *Stok Tersedia:* ${script.stock}\n\n📦 *Yang akan Anda dapatkan:*\n• File Source Code (ZIP)\n• Video Tutorial Lengkap\n• Teks Instruksi Instalasi\n\n`;
+    let text = `🤖 *SCRIPT BOT PREMIUM*\n\n`;
+    text += `📝 *Nama:* ${script.name}\n💰 *Harga:* Rp${script.price.toLocaleString('id-ID')}\n📊 *Stok Tersedia:* ${script.stock}\n\n`;
+    text += `📦 *Yang akan Anda dapatkan:*\n• File Source Code (ZIP)\n• Video Tutorial Lengkap\n• Teks Instruksi Instalasi\n\n`;
     if (script.stock <= 0) {
       text += `⚠️ Stok sedang habis!`;
-      return safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback(' Menu Utama', 'main_menu')]]));
+      return safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
     }
     const buttons = [
-      [Markup.button.callback('?? Bayar via QRIS', `script_pay_qris_1`)],
+      [Markup.button.callback('💳 Bayar via QRIS', `script_pay_qris_1`)],
       [Markup.button.callback('💰 Bayar Pakai Saldo', `script_pay_saldo_1`)],
       [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
     ];
@@ -308,7 +312,8 @@ bot.action(/^script_pay_saldo_(.+)$/, async (ctx) => {
       db.run(`UPDATE bot_scripts SET stock = stock - 1 WHERE id = ?`, [scriptId]);
       const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
       const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
-      db.run(`INSERT INTO script_orders (user_id, username, script_id, amount, status, created_at) VALUES (?, ?, ?, ?, 'APPROVED', ?)`, [userId, username, scriptId, script.price, now]);
+      db.run(`INSERT INTO script_orders (user_id, username, script_id, amount, status, created_at) VALUES (?, ?, ?, ?, 'APPROVED', ?)`,
+        [userId, username, scriptId, script.price, now]);
       deliverScript(ctx, script);
       const adminId = getAdminId();
       if (adminId) bot.telegram.sendMessage(adminId, `🎉 *PEMBELIAN SCRIPT SUKSES (SALDO)*\n\n👤 Buyer: ${username} (ID: ${userId})\n📦 Script: ${script.name}\n💰 Total: Rp${script.price.toLocaleString('id-ID')}`, { parse_mode: 'Markdown' }).catch(() => {});
@@ -326,12 +331,16 @@ bot.action(/^script_pay_qris_(.+)$/, async (ctx) => {
       const qris = await generateDynamicQRIS(script.price, `SCR`);
       const now = new Date().toISOString();
       const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
-      db.run(`INSERT INTO script_orders (user_id, username, script_id, amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`, [userId, username, scriptId, script.price, now, qris.transactionId, qris.expiresAt], function (dbErr) {
-        if (dbErr) return ctx.reply('️ Gagal membuat pesanan.');
-        const orderId = this.lastID;
-        const detailText = ` *PESANAN SCRIPT #${orderId}*\n\n📦 *Script:* ${script.name}\n💰 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS dinamis.`;
-        safeClearAndSend(ctx, detailText, { photo: { source: qris.imageBuffer }, ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]]) });
-      });
+      db.run(`INSERT INTO script_orders (user_id, username, script_id, amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+        [userId, username, scriptId, script.price, now, qris.transactionId, qris.expiresAt], function (dbErr) {
+          if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
+          const orderId = this.lastID;
+          const detailText = `🧾 *PESANAN SCRIPT #${orderId}*\n\n📦 *Script:* ${script.name}\n💰 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS dinamis.`;
+          safeClearAndSend(ctx, detailText, {
+            photo: { source: qris.imageBuffer },
+            ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]])
+          });
+        });
     } catch (e) {
       return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true });
     }
@@ -344,12 +353,12 @@ bot.action('admin_script_menu', async (ctx) => {
   db.get(`SELECT * FROM bot_scripts WHERE id = 1`, (err, script) => {
     let text = `📦 *MANAJEMEN JUAL SCRIPT BOT*\n\n`;
     if (!script || !script.name) text += `Script belum di-setting.`;
-    else text += ` *Nama:* ${script.name}\n💰 *Harga:* Rp${script.price.toLocaleString('id-ID')}\n📊 *Stok:* ${script.stock}\n📂 *ZIP:* ${script.zip_file_id ? '✅ Ada' : '❌ Belum'}\n🎥 *Video:* ${script.video_file_id ? '✅ Ada' : '❌ Belum'}\n📄 *Instruksi:* ${script.instruction_text ? '✅ Ada' : '❌ Belum'}`;
+    else text += `📝 *Nama:* ${script.name}\n💰 *Harga:* Rp${script.price.toLocaleString('id-ID')}\n📊 *Stok:* ${script.stock}\n📂 *ZIP:* ${script.zip_file_id ? '✅ Ada' : '❌ Belum'}\n🎥 *Video:* ${script.video_file_id ? '✅ Ada' : '❌ Belum'}\n📄 *Instruksi:* ${script.instruction_text ? '✅ Ada' : '❌ Belum'}`;
     const buttons = [
       [Markup.button.callback('⚙️ Set Nama & Harga', 'admin_script_set_info')],
       [Markup.button.callback('📂 Upload File ZIP', 'admin_script_upload_zip')],
       [Markup.button.callback('🎥 Upload Video Tutorial', 'admin_script_upload_video')],
-      [Markup.button.callback(' Set Teks Instruksi', 'admin_script_set_text')],
+      [Markup.button.callback('📝 Set Teks Instruksi', 'admin_script_set_text')],
       [Markup.button.callback('➕ Tambah Stok', 'admin_script_add_stock')],
       [Markup.button.callback('🗑️ Hapus Script', 'admin_script_delete')],
       [Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]
@@ -357,12 +366,36 @@ bot.action('admin_script_menu', async (ctx) => {
     safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
   });
 });
-bot.action('admin_script_set_info', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SCRIPT_SET_INFO' }; ctx.reply('Masukkan Nama dan Harga Script (Format: `Nama|Harga`)', { parse_mode: 'Markdown' }); });
-bot.action('admin_script_upload_zip', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SCRIPT_UPLOAD_ZIP' }; ctx.reply('Kirimkan File ZIP Script Bot:'); });
-bot.action('admin_script_upload_video', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SCRIPT_UPLOAD_VIDEO' }; ctx.reply('Kirimkan Video Tutorial Script Bot:'); });
-bot.action('admin_script_set_text', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SCRIPT_SET_TEXT' }; ctx.reply('Kirimkan Teks Instruksi:'); });
-bot.action('admin_script_add_stock', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SCRIPT_ADD_STOCK' }; ctx.reply('Masukkan jumlah stok:'); });
-bot.action('admin_script_delete', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.run(`DELETE FROM bot_scripts WHERE id = 1`); ctx.answerCbQuery('✅ Script dihapus!', { show_alert: true }); });
+bot.action('admin_script_set_info', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SCRIPT_SET_INFO' };
+  ctx.reply('Masukkan Nama dan Harga Script (Format: `Nama|Harga`)\nContoh: `Bot Toko Premium|50000`', { parse_mode: 'Markdown' });
+});
+bot.action('admin_script_upload_zip', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SCRIPT_UPLOAD_ZIP' };
+  ctx.reply('Kirimkan File ZIP Script Bot:');
+});
+bot.action('admin_script_upload_video', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SCRIPT_UPLOAD_VIDEO' };
+  ctx.reply('Kirimkan Video Tutorial Script Bot:');
+});
+bot.action('admin_script_set_text', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SCRIPT_SET_TEXT' };
+  ctx.reply('Kirimkan Teks Instruksi:');
+});
+bot.action('admin_script_add_stock', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SCRIPT_ADD_STOCK' };
+  ctx.reply('Masukkan jumlah stok:');
+});
+bot.action('admin_script_delete', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.run(`DELETE FROM bot_scripts WHERE id = 1`);
+  ctx.answerCbQuery('✅ Script dihapus!', { show_alert: true });
+});
 
 bot.on('document', async (ctx) => {
   const adminId = getAdminId();
@@ -371,7 +404,9 @@ bot.on('document', async (ctx) => {
     if (userState[adminId].step === 'SCRIPT_UPLOAD_ZIP') {
       const fileId = ctx.message.document.file_id;
       db.get(`SELECT id FROM bot_scripts WHERE id = 1`, (err, row) => {
-        if (!row) db.run(`INSERT INTO bot_scripts (id, name, price, stock) VALUES (1, 'Script Bot', 0, 0)`, () => { db.run(`UPDATE bot_scripts SET zip_file_id = ? WHERE id = 1`, [fileId]); });
+        if (!row) db.run(`INSERT INTO bot_scripts (id, name, price, stock) VALUES (1, 'Script Bot', 0, 0)`, () => {
+          db.run(`UPDATE bot_scripts SET zip_file_id = ? WHERE id = 1`, [fileId]);
+        });
         else db.run(`UPDATE bot_scripts SET zip_file_id = ? WHERE id = 1`, [fileId]);
         delete userState[adminId];
         ctx.reply('✅ File ZIP diupload!');
@@ -388,7 +423,9 @@ bot.on('video', async (ctx) => {
     if (userState[adminId].step === 'SCRIPT_UPLOAD_VIDEO') {
       const fileId = ctx.message.video.file_id;
       db.get(`SELECT id FROM bot_scripts WHERE id = 1`, (err, row) => {
-        if (!row) db.run(`INSERT INTO bot_scripts (id, name, price, stock) VALUES (1, 'Script Bot', 0, 0)`, () => { db.run(`UPDATE bot_scripts SET video_file_id = ? WHERE id = 1`, [fileId]); });
+        if (!row) db.run(`INSERT INTO bot_scripts (id, name, price, stock) VALUES (1, 'Script Bot', 0, 0)`, () => {
+          db.run(`UPDATE bot_scripts SET video_file_id = ? WHERE id = 1`, [fileId]);
+        });
         else db.run(`UPDATE bot_scripts SET video_file_id = ? WHERE id = 1`, [fileId]);
         delete userState[adminId];
         ctx.reply('✅ Video diupload!');
@@ -399,17 +436,21 @@ bot.on('video', async (ctx) => {
 });
 
 // === HANDLER USER LAINNYA ===
-bot.action('user_check_id', async (ctx) => { ctx.answerCbQuery(); ctx.replyWithMarkdown(`👤 *ID Telegram Anda:* \`${ctx.from.id}\``); });
+bot.action('user_check_id', async (ctx) => {
+  ctx.answerCbQuery();
+  ctx.replyWithMarkdown(`👤 *ID Telegram Anda:* \`${ctx.from.id}\``);
+});
 bot.action('user_lagu', async (ctx) => {
   ctx.answerCbQuery();
   db.get(`SELECT song FROM store WHERE id = 1`, async (err, store) => {
     if (!store || !store.song) return ctx.reply('⚠️ Admin belum mengatur lagu.');
-    try { await ctx.replyWithAudio(store.song, { caption: '🎵 Ini dia lagunya!' }); } catch (e) { ctx.reply('⚠️ Gagal mengirim lagu.'); }
+    try { await ctx.replyWithAudio(store.song, { caption: '🎵 Ini dia lagunya!' }); }
+    catch (e) { ctx.reply('⚠️ Gagal mengirim lagu.'); }
   });
 });
 bot.action('user_faq', async (ctx) => {
   ctx.answerCbQuery();
-  const faqText = ` *CARA BELANJA*\n\n1️⃣ Pilih *Katalog Produk*\n2️⃣ Pilih produk & jumlah\n3️⃣ Pilih metode bayar (*QRIS* atau *Saldo*)\n4️⃣ Jika via QRIS, scan & transfer sesuai Nominal Pas\n5️⃣ Produk dikirim otomatis!`;
+  const faqText = `📖 *CARA BELANJA*\n\n1️⃣ Pilih *Katalog Produk*\n2️⃣ Pilih produk & jumlah\n3️⃣ Pilih metode bayar (*QRIS* atau *Saldo*)\n4️⃣ Jika via QRIS, scan & transfer sesuai Nominal Pas\n5️⃣ Produk dikirim otomatis!`;
   await safeClearAndSend(ctx, faqText, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
 });
 bot.action('user_live_stock', async (ctx) => {
@@ -438,7 +479,11 @@ const sendReferral = async (ctx) => {
 bot.action('user_referral', async (ctx) => { ctx.answerCbQuery(); await sendReferral(ctx); });
 bot.command('referral', sendReferral);
 
-bot.action('user_search_prod', async (ctx) => { ctx.answerCbQuery(); userState[ctx.from.id] = { step: 'SEARCH_PRODUCT' }; await safeClearAndSend(ctx, `🔍 *PENCARIAN PRODUK*\n\nKetik kata kunci:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]])); });
+bot.action('user_search_prod', async (ctx) => {
+  ctx.answerCbQuery();
+  userState[ctx.from.id] = { step: 'SEARCH_PRODUCT' };
+  await safeClearAndSend(ctx, `🔍 *PENCARIAN PRODUK*\n\nKetik kata kunci:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]]));
+});
 
 const sendMyOrders = async (ctx) => {
   const userId = ctx.from.id;
@@ -458,7 +503,7 @@ bot.action('user_balance_menu', async (ctx) => {
   db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], async (err, row) => {
     const tier = row ? (row.tier || 'Bronze') : 'Bronze';
     const balance = (tier === 'Owner' || userId === getAdminId()) ? '∞ (Unlimited)' : `Rp${(row ? row.balance || 0 : 0).toLocaleString('id-ID')}`;
-    const text = `💳 *MANAJEMEN SALDO*\n\n💰 *Saldo:* ${balance}\n️ *Tier:* ${tier}\n\nPilih nominal Top Up:`;
+    const text = `💳 *MANAJEMEN SALDO*\n\n💰 *Saldo:* ${balance}\n🏷️ *Tier:* ${tier}\n\nPilih nominal Top Up:`;
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard([
       [Markup.button.callback('➕ Rp500', 'topup_amt_500'), Markup.button.callback('➕ Rp1.000', 'topup_amt_1000')],
       [Markup.button.callback('➕ Rp5.000', 'topup_amt_5000'), Markup.button.callback('➕ Rp10.000', 'topup_amt_10000')],
@@ -468,7 +513,11 @@ bot.action('user_balance_menu', async (ctx) => {
   });
 });
 bot.action(/^topup_amt_(.+)$/, async (ctx) => { processTopUp(ctx, parseInt(ctx.match[1])); });
-bot.action('user_topup_custom', async (ctx) => { ctx.answerCbQuery(); userState[ctx.from.id] = { step: 'TOPUP_AMOUNT' }; await safeClearAndSend(ctx, `💰 *TOP UP CUSTOM*\n\nMasukkan nominal (500-10000000):`, Markup.inlineKeyboard([[Markup.button.callback(' Batal', 'user_balance_menu')]])); });
+bot.action('user_topup_custom', async (ctx) => {
+  ctx.answerCbQuery();
+  userState[ctx.from.id] = { step: 'TOPUP_AMOUNT' };
+  await safeClearAndSend(ctx, `💰 *TOP UP CUSTOM*\n\nMasukkan nominal (500-10000000):`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]));
+});
 
 const processTopUp = async (ctx, amount) => {
   if (!Number.isInteger(amount) || amount < 500 || amount > 10000000) return ctx.answerCbQuery('⚠️ Nominal harus Rp500–Rp10.000.000.', { show_alert: true });
@@ -476,20 +525,26 @@ const processTopUp = async (ctx, amount) => {
     const qris = await generateDynamicQRIS(amount, `TOPUP`);
     const now = new Date().toISOString();
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
-    db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`, [ctx.from.id, username, amount, qris.uniqueCode, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (err) {
-      if (err) return ctx.reply('⚠️ Gagal membuat invoice.');
-      const topupId = this.lastID;
-      userState[ctx.from.id] = { step: 'UPLOAD_TOPUP_PROOF', topupId };
-      const detailText = `💰 *INVOICE TOP UP #${topupId}*\n\n💵 *Nominal:* Rp${amount.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS di atas.`;
-      safeClearAndSend(ctx, detailText, { photo: { source: qris.imageBuffer }, ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]) });
-    });
-  } catch (e) { return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true }); }
+    db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+      [ctx.from.id, username, amount, qris.uniqueCode, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (err) {
+        if (err) return ctx.reply('⚠️ Gagal membuat invoice.');
+        const topupId = this.lastID;
+        userState[ctx.from.id] = { step: 'UPLOAD_TOPUP_PROOF', topupId };
+        const detailText = `💰 *INVOICE TOP UP #${topupId}*\n\n💵 *Nominal:* Rp${amount.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS di atas.`;
+        safeClearAndSend(ctx, detailText, {
+          photo: { source: qris.imageBuffer },
+          ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]])
+        });
+      });
+  } catch (e) {
+    return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true });
+  }
 };
 
 const sendCatalog = async (ctx) => {
   const query = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`;
   db.all(query, async (err, products) => {
-    if (!products || products.length === 0) return await safeClearAndSend(ctx, '⚠️ Katalog kosong.', Markup.inlineKeyboard([[Markup.button.callback(' Kembali', 'main_menu')]]));
+    if (!products || products.length === 0) return await safeClearAndSend(ctx, '⚠️ Katalog kosong.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     let text = `🛒 *KATALOG PRODUK*\n\nPilih produk:`;
     let buttons = products.map(prod => [Markup.button.callback(`${prod.name} (Rp${prod.price.toLocaleString('id-ID')}) [${prod.stock_count}]`, `buy_${prod.id}`)]);
     buttons.push([Markup.button.callback('🔙 Menu Utama', 'main_menu')]);
@@ -509,7 +564,12 @@ bot.action(/^buy_(.+)$/, async (ctx) => {
       const qtyButtons = [];
       const limits = [1, 2, 5, 10, 20, 50, 100];
       let row = [];
-      limits.forEach(q => { if (q <= available) { row.push(Markup.button.callback(`🛒 Beli ${q}`, `selectqty_${prodId}_${q}`)); if (row.length === 3) { qtyButtons.push(row); row = []; } } });
+      limits.forEach(q => {
+        if (q <= available) {
+          row.push(Markup.button.callback(`🛒 Beli ${q}`, `selectqty_${prodId}_${q}`));
+          if (row.length === 3) { qtyButtons.push(row); row = []; }
+        }
+      });
       if (row.length > 0) qtyButtons.push(row);
       qtyButtons.push([Markup.button.callback('🔙 Katalog', 'user_catalog')]);
       if (prod.photo && prod.photo !== '') await safeClearAndSend(ctx, captionText, { photo: prod.photo, ...Markup.inlineKeyboard(qtyButtons) });
@@ -519,7 +579,8 @@ bot.action(/^buy_(.+)$/, async (ctx) => {
 });
 
 bot.action(/^selectqty_(.+)_(.+)$/, async (ctx) => {
-  const prodId = ctx.match[1]; const qty = parseInt(ctx.match[2]);
+  const prodId = ctx.match[1];
+  const qty = parseInt(ctx.match[2]);
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
     const totalPrice = prod.price * qty;
     const buttons = Markup.inlineKeyboard([
@@ -528,14 +589,20 @@ bot.action(/^selectqty_(.+)_(.+)$/, async (ctx) => {
       [Markup.button.callback('💰 Bayar Pakai Saldo', `paysaldo_${prodId}_${qty}`)],
       [Markup.button.callback('🔙 Kembali', `buy_${prodId}`)]
     ]);
-    safeClearAndSend(ctx, `🛍️ *KONFIRMASI PESANAN*\n\n📦 *Produk:* ${prod.name}\n *Jumlah:* ${qty} item\n *Total:* Rp${totalPrice.toLocaleString('id-ID')}`, buttons);
+    safeClearAndSend(ctx, `🛍️ *KONFIRMASI PESANAN*\n\n📦 *Produk:* ${prod.name}\n🔢 *Jumlah:* ${qty} item\n💰 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`, buttons);
   });
 });
 
-bot.action(/^vouc_(.+)_(.+)$/, async (ctx) => { userState[ctx.from.id] = { step: 'INPUT_VOUCHER', prodId: ctx.match[1], qty: ctx.match[2] }; await safeClearAndSend(ctx, `🎟️ *MASUKKAN KODE VOUCHER*`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `selectqty_${ctx.match[1]}_${ctx.match[2]}`)]])); });
+bot.action(/^vouc_(.+)_(.+)$/, async (ctx) => {
+  userState[ctx.from.id] = { step: 'INPUT_VOUCHER', prodId: ctx.match[1], qty: ctx.match[2] };
+  await safeClearAndSend(ctx, `🎟️ *MASUKKAN KODE VOUCHER*`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `selectqty_${ctx.match[1]}_${ctx.match[2]}`)]]));
+});
 
+// FIX: Regex pay_ sekarang pakai underscore pemisah
 bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
-  const prodId = ctx.match[1]; const qty = parseInt(ctx.match[2]); const discount = parseInt(ctx.match[3]) || 0;
+  const prodId = ctx.match[1];
+  const qty = parseInt(ctx.match[2]);
+  const discount = parseInt(ctx.match[3]) || 0;
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
     if (err || !prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
     const basePrice = Math.max(1000, (prod.price * qty) - discount);
@@ -543,84 +610,310 @@ bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
     try {
       const qris = await generateDynamicQRIS(basePrice, `ORD`);
       const now = new Date().toISOString();
-      db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`, [ctx.from.id, username, prodId, qty, discount, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (dbErr) {
-        if (dbErr) return ctx.reply('️ Gagal membuat pesanan.');
-        const orderId = this.lastID;
-        userState[ctx.from.id] = { step: 'UPLOAD_PROOF', orderId };
-        const detailText = `🧾 *PESANAN #${orderId}*\n\n *Produk:* ${prod.name} (${qty}x)\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}`;
-        safeClearAndSend(ctx, detailText, { photo: { source: qris.imageBuffer }, ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]]) });
-      });
-    } catch (e) { return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true }); }
+      db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
+        [ctx.from.id, username, prodId, qty, discount, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (dbErr) {
+          if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
+          const orderId = this.lastID;
+          userState[ctx.from.id] = { step: 'UPLOAD_PROOF', orderId };
+          const detailText = `🧾 *PESANAN #${orderId}*\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💰 *Harga:* Rp${basePrice.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}`;
+          safeClearAndSend(ctx, detailText, {
+            photo: { source: qris.imageBuffer },
+            ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]])
+          });
+        });
+    } catch (e) {
+      return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true });
+    }
   });
 });
 
 bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
-  const prodId = ctx.match[1]; const qty = parseInt(ctx.match[2]); const userId = ctx.from.id;
+  const prodId = ctx.match[1];
+  const qty = parseInt(ctx.match[2]);
+  const userId = ctx.from.id;
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
     if (!prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
     db.all(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT ?`, [prodId, qty], (err, stocks) => {
-      if (!stocks || stocks.length < qty) return ctx.answerCbQuery(`️ Stok tidak cukup!`, { show_alert: true });
+      if (!stocks || stocks.length < qty) return ctx.answerCbQuery(`⚠️ Stok tidak cukup!`, { show_alert: true });
       db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err, row) => {
-        const tier = row ? row.tier : 'Bronze'; const balance = row ? row.balance : 0; const totalCost = prod.price * qty;
-        if (tier !== 'Owner' && userId !== getAdminId() && balance < totalCost) return ctx.answerCbQuery(`️ Saldo tidak cukup!`, { show_alert: true });
-        const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' }); const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+        const tier = row ? row.tier : 'Bronze';
+        const balance = row ? row.balance : 0;
+        const totalCost = prod.price * qty;
+        if (tier !== 'Owner' && userId !== getAdminId() && balance < totalCost) return ctx.answerCbQuery(`⚠️ Saldo tidak cukup!`, { show_alert: true });
+        const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+        const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
         if (tier !== 'Owner' && userId !== getAdminId()) db.run(`UPDATE users SET balance = balance - ? WHERE user_id = ?`, [totalCost, userId]);
-        const stockIds = stocks.map(s => s.id); const stockContents = stocks.map(s => s.content).join('\n---\n');
+        const stockIds = stocks.map(s => s.id);
+        const stockContents = stocks.map(s => s.content).join('\n---\n');
         db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
-        db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at) VALUES (?, ?, ?, ?, 'APPROVED', 0, ?, ?)`, [userId, username, prodId, qty, totalCost, now], async function (err) {
-          const orderId = this.lastID;
-          await safeClearAndSend(ctx, `🎉 *PEMBELIAN BERHASIL (SALDO)!*\n\nDetail (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${prod.note ? `📝 *CATATAN:*\n${prod.note}` : ''}`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
-        });
+        db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at) VALUES (?, ?, ?, ?, 'APPROVED', 0, ?, ?)`,
+          [userId, username, prodId, qty, totalCost, now], async function (err) {
+            const orderId = this.lastID;
+            await safeClearAndSend(ctx, `🎉 *PEMBELIAN BERHASIL (SALDO)!*\n\nDetail (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${prod.note ? `📝 *CATATAN:*\n${prod.note}` : ''}`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+          });
       });
     });
   });
 });
 
-const approveTopupById = (topupId) => { return new Promise((resolve) => { db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => { if (!topup) return resolve({ ok: false, reason: 'NOT_FOUND' }); if (topup.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', topup }); db.run(`UPDATE topups SET status = 'APPROVED' WHERE id = ?`, [topupId]); db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [topup.amount, topup.user_id]); bot.telegram.sendMessage(topup.user_id, `🎉 *TOP UP DIKONFIRMASI!*\n\nSaldo Rp${topup.amount.toLocaleString('id-ID')} telah ditambahkan.`, { parse_mode: 'Markdown' }).catch(() => {}); resolve({ ok: true, topup }); }); }); };
-bot.action(/^topupapprove_(.+)$/, async (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; const result = await approveTopupById(ctx.match[1]); if (!result.ok) return ctx.answerCbQuery(result.reason === 'ALREADY_APPROVED' ? 'Sudah di-approve!' : 'Tidak ditemukan.', { show_alert: true }); ctx.answerCbQuery('✅ Top up di-approve.', { show_alert: true }); });
-bot.action(/^topupreject_(.+)$/, async (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.get(`SELECT * FROM topups WHERE id = ?`, [ctx.match[1]], (err, topup) => { if (!topup) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true }); db.run(`UPDATE topups SET status = 'REJECTED' WHERE id = ?`, [ctx.match[1]]); bot.telegram.sendMessage(topup.user_id, `❌ *TOP UP DITOLAK*`, { parse_mode: 'Markdown' }).catch(() => {}); ctx.answerCbQuery('Top up ditolak.', { show_alert: true }); }); });
+const approveTopupById = (topupId) => {
+  return new Promise((resolve) => {
+    db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
+      if (!topup) return resolve({ ok: false, reason: 'NOT_FOUND' });
+      if (topup.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', topup });
+      db.run(`UPDATE topups SET status = 'APPROVED' WHERE id = ?`, [topupId]);
+      db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [topup.amount, topup.user_id]);
+      bot.telegram.sendMessage(topup.user_id, `🎉 *TOP UP DIKONFIRMASI!*\n\nSaldo Rp${topup.amount.toLocaleString('id-ID')} telah ditambahkan.`, { parse_mode: 'Markdown' }).catch(() => {});
+      resolve({ ok: true, topup });
+    });
+  });
+};
 
-const approveOrderById = (orderId) => { return new Promise((resolve) => { db.get(`SELECT o.*, p.name as product_name, p.note as product_note FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => { if (!order) return resolve({ ok: false, reason: 'NOT_FOUND' }); if (order.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', order }); db.all(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT ?`, [order.product_id, order.quantity], (err, stocks) => { if (!stocks || stocks.length < order.quantity) return resolve({ ok: false, reason: 'OUT_OF_STOCK', order, available: stocks ? stocks.length : 0 }); const stockIds = stocks.map(s => s.id); const stockContents = stocks.map(s => s.content).join('\n---\n'); db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]); db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`); bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI!*\n\nDetail (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${order.product_note ? `📝 *CATATAN:*\n${order.product_note}` : ''}`, { parse_mode: 'Markdown' }).catch(() => {}); resolve({ ok: true, order }); }); }); }); };
-bot.action(/^approve_(.+)$/, async (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; const result = await approveOrderById(ctx.match[1]); if (!result.ok) return ctx.answerCbQuery('Error.', { show_alert: true }); ctx.answerCbQuery('✅ Pesanan di-approve.', { show_alert: true }); });
-bot.action(/^reject_(.+)$/, async (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.get(`SELECT * FROM orders WHERE id = ?`, [ctx.match[1]], (err, order) => { if (!order) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true }); db.run(`UPDATE orders SET status = 'REJECTED' WHERE id = ?`, [ctx.match[1]]); bot.telegram.sendMessage(order.user_id, `❌ *PEMBAYARAN DITOLAK*`, { parse_mode: 'Markdown' }).catch(() => {}); ctx.answerCbQuery('Pesanan ditolak.', { show_alert: true }); }); });
+bot.action(/^topupapprove_(.+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const result = await approveTopupById(ctx.match[1]);
+  if (!result.ok) return ctx.answerCbQuery(result.reason === 'ALREADY_APPROVED' ? 'Sudah di-approve!' : 'Tidak ditemukan.', { show_alert: true });
+  ctx.answerCbQuery('✅ Top up di-approve.', { show_alert: true });
+});
 
-const sendAdminDashboard = async (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; await safeClearAndSend(ctx, '⚙️ DASHBOARD ADMIN TOKO', getAdminMenu()); };
+bot.action(/^topupreject_(.+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.get(`SELECT * FROM topups WHERE id = ?`, [ctx.match[1]], (err, topup) => {
+    if (!topup) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true });
+    db.run(`UPDATE topups SET status = 'REJECTED' WHERE id = ?`, [ctx.match[1]]);
+    bot.telegram.sendMessage(topup.user_id, `❌ *TOP UP DITOLAK*`, { parse_mode: 'Markdown' }).catch(() => {});
+    ctx.answerCbQuery('Top up ditolak.', { show_alert: true });
+  });
+});
+
+const approveOrderById = (orderId) => {
+  return new Promise((resolve) => {
+    db.get(`SELECT o.*, p.name as product_name, p.note as product_note FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
+      if (!order) return resolve({ ok: false, reason: 'NOT_FOUND' });
+      if (order.status === 'APPROVED') return resolve({ ok: false, reason: 'ALREADY_APPROVED', order });
+      db.all(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT ?`, [order.product_id, order.quantity], (err, stocks) => {
+        if (!stocks || stocks.length < order.quantity) return resolve({ ok: false, reason: 'OUT_OF_STOCK', order, available: stocks ? stocks.length : 0 });
+        const stockIds = stocks.map(s => s.id);
+        const stockContents = stocks.map(s => s.content).join('\n---\n');
+        db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
+        db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
+        bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI!*\n\nDetail (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${order.product_note ? `📝 *CATATAN:*\n${order.product_note}` : ''}`, { parse_mode: 'Markdown' }).catch(() => {});
+        resolve({ ok: true, order });
+      });
+    });
+  });
+};
+
+bot.action(/^approve_(.+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const result = await approveOrderById(ctx.match[1]);
+  if (!result.ok) return ctx.answerCbQuery('Error.', { show_alert: true });
+  ctx.answerCbQuery('✅ Pesanan di-approve.', { show_alert: true });
+});
+
+bot.action(/^reject_(.+)$/, async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.get(`SELECT * FROM orders WHERE id = ?`, [ctx.match[1]], (err, order) => {
+    if (!order) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true });
+    db.run(`UPDATE orders SET status = 'REJECTED' WHERE id = ?`, [ctx.match[1]]);
+    bot.telegram.sendMessage(order.user_id, `❌ *PEMBAYARAN DITOLAK*`, { parse_mode: 'Markdown' }).catch(() => {});
+    ctx.answerCbQuery('Pesanan ditolak.', { show_alert: true });
+  });
+});
+
+const sendAdminDashboard = async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  await safeClearAndSend(ctx, '⚙️ DASHBOARD ADMIN TOKO', getAdminMenu());
+};
 bot.action('admin_dashboard', sendAdminDashboard);
 bot.command('admin', sendAdminDashboard);
 
-bot.action('admin_stats', async (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.get(`SELECT COUNT(user_id) AS total_visitors FROM visitors`, (err, row) => { db.get(`SELECT COUNT(group_id) AS total_groups FROM groups`, (err, gRow) => { ctx.answerCbQuery(`Pengunjung: ${row ? row.total_visitors : 0} | Grup: ${gRow ? gRow.total_groups : 0}`, { show_alert: true }); }); }); });
-bot.action('admin_backup', async (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; try { await ctx.replyWithDocument({ source: dbPath, filename: 'database.db' }, { caption: '💾 DATABASE BACKUP' }); } catch (e) { ctx.reply('❌ Gagal backup.'); } });
+bot.action('admin_stats', async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.get(`SELECT COUNT(user_id) AS total_visitors FROM visitors`, (err, row) => {
+    db.get(`SELECT COUNT(group_id) AS total_groups FROM groups`, (err, gRow) => {
+      ctx.answerCbQuery(`Pengunjung: ${row ? row.total_visitors : 0} | Grup: ${gRow ? gRow.total_groups : 0}`, { show_alert: true });
+    });
+  });
+});
 
-bot.action('admin_edit_store', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'EDIT_STORE_NAME' }; ctx.reply('Masukkan Nama Toko Baru:'); });
-bot.action('admin_set_header_photo', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_HEADER_PHOTO' }; ctx.reply('Kirimkan foto untuk Banner Header:'); });
-bot.action('admin_set_qris_photo', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_QRIS_PHOTO' }; ctx.reply('Kirimkan foto QRIS toko:'); });
-bot.action('admin_set_welcome', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_WELCOME_MSG' }; ctx.reply('Kirim pesan Welcome:'); });
-bot.action('admin_set_leave', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_LEAVE_MSG' }; ctx.reply('Kirim pesan Leave:'); });
-bot.action('admin_set_song', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_SONG' }; ctx.reply('🎵 Kirimkan file audio/lagu:'); });
-bot.action('admin_set_uname', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_ADMIN_UNAME' }; ctx.reply('Masukkan Username CS:'); });
-bot.action('admin_set_channel', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_REQ_CHANNEL' }; ctx.reply('Masukkan Username Channel:'); });
-bot.action('admin_set_log_group', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_LOG_GROUP' }; ctx.reply('Masukkan ID Grup Log:'); });
-bot.action('admin_set_req_group', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'SET_REQ_GROUP' }; ctx.reply('Masukkan Username Grup:'); });
-bot.action('admin_add_voucher', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'ADD_VOUCHER_CODE' }; ctx.reply('Masukkan Kode Voucher:'); });
-bot.action('admin_del_voucher', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.all(`SELECT * FROM vouchers`, (err, rows) => { if (!rows || rows.length === 0) return ctx.reply('Belum ada voucher.'); const buttons = rows.map(v => [Markup.button.callback(`🗑️ ${v.code}`, `delvouc_${v.code}`)]); ctx.reply('Pilih voucher yang dihapus:', Markup.inlineKeyboard(buttons)); }); });
-bot.action(/^delvouc_(.+)$/, (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.run(`DELETE FROM vouchers WHERE code = ?`, [ctx.match[1]]); ctx.reply('✅ Voucher dihapus!'); });
+bot.action('admin_backup', async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  try { await ctx.replyWithDocument({ source: dbPath, filename: 'database.db' }, { caption: '💾 DATABASE BACKUP' }); }
+  catch (e) { ctx.reply('❌ Gagal backup.'); }
+});
 
-const showUserManageCard = (ctx, targetId) => { db.get(`SELECT * FROM users WHERE user_id = ?`, [targetId], (err, row) => { if (!row) { db.run(`INSERT INTO users (user_id, upline_id, balance, tier) VALUES (?, 0, 0, 'Bronze')`, [targetId], () => showUserManageCard(ctx, targetId)); return; } const tier = row.tier || 'Bronze'; const balance = tier === 'Owner' ? '∞ (Unlimited)' : `Rp${(row.balance || 0).toLocaleString('id-ID')}`; ctx.reply(`👤 *KELOLA USER*\n\n🆔 *ID:* \`${targetId}\`\n💳 Saldo: ${balance}\n🏷️ Tier: ${tier}`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([ [Markup.button.callback('➕ Tambah Saldo', `adduser_saldo_${targetId}`), Markup.button.callback('➖ Kurangi Saldo', `subuser_saldo_${targetId}`)], [Markup.button.callback('🥉 Bronze', `settier_${targetId}_Bronze`), Markup.button.callback('🥈 Silver', `settier_${targetId}_Silver`)], [Markup.button.callback('🥇 Gold', `settier_${targetId}_Gold`), Markup.button.callback(' Owner', `settier_${targetId}_Owner`)], [Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')] ]) }); }); };
-bot.action('admin_manage_user', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'ADMIN_MANAGE_USER_ID' }; ctx.reply('Masukkan ID Telegram user:'); });
-bot.action(/^adduser_saldo_(.+)$/, (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'ADMIN_ADD_SALDO_AMOUNT', targetId: ctx.match[1] }; ctx.reply(`Masukkan nominal saldo yang *DITAMBAH* untuk \`${ctx.match[1]}\`:`, { parse_mode: 'Markdown' }); });
-bot.action(/^subuser_saldo_(.+)$/, (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'ADMIN_SUB_SALDO_AMOUNT', targetId: ctx.match[1] }; ctx.reply(`Masukkan nominal saldo yang *DIKURANGI* dari \`${ctx.match[1]}\`:`, { parse_mode: 'Markdown' }); });
-bot.action(/^settier_(.+)_(Bronze|Silver|Gold|Owner)$/, (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; const targetId = ctx.match[1]; const tier = ctx.match[2]; db.run(`UPDATE users SET tier = ? WHERE user_id = ?`, [tier, targetId]); ctx.answerCbQuery(`✅ Tier ${targetId} → ${tier}`, { show_alert: true }); bot.telegram.sendMessage(targetId, `🏷️ *TIER DIPERBARUI*\n\nTier Anda: *${tier}*`, { parse_mode: 'Markdown' }).catch(() => {}); showUserManageCard(ctx, targetId); });
+bot.action('admin_edit_store', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'EDIT_STORE_NAME' };
+  ctx.reply('Masukkan Nama Toko Baru:');
+});
+bot.action('admin_set_header_photo', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_HEADER_PHOTO' };
+  ctx.reply('Kirimkan foto untuk Banner Header:');
+});
+bot.action('admin_set_qris_photo', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_QRIS_PHOTO' };
+  ctx.reply('Kirimkan foto QRIS toko:');
+});
+bot.action('admin_set_welcome', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_WELCOME_MSG' };
+  ctx.reply('Kirim pesan Welcome:');
+});
+bot.action('admin_set_leave', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_LEAVE_MSG' };
+  ctx.reply('Kirim pesan Leave:');
+});
+bot.action('admin_set_song', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_SONG' };
+  ctx.reply('🎵 Kirimkan file audio/lagu:');
+});
+bot.action('admin_set_uname', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_ADMIN_UNAME' };
+  ctx.reply('Masukkan Username CS:');
+});
+bot.action('admin_set_channel', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_REQ_CHANNEL' };
+  ctx.reply('Masukkan Username Channel:');
+});
+bot.action('admin_set_log_group', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_LOG_GROUP' };
+  ctx.reply('Masukkan ID Grup Log:');
+});
+bot.action('admin_set_req_group', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_REQ_GROUP' };
+  ctx.reply('Masukkan Username Grup:');
+});
+bot.action('admin_add_voucher', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_VOUCHER_CODE' };
+  ctx.reply('Masukkan Kode Voucher:');
+});
+bot.action('admin_del_voucher', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM vouchers`, (err, rows) => {
+    if (!rows || rows.length === 0) return ctx.reply('Belum ada voucher.');
+    const buttons = rows.map(v => [Markup.button.callback(`🗑️ ${v.code}`, `delvouc_${v.code}`)]);
+    ctx.reply('Pilih voucher yang dihapus:', Markup.inlineKeyboard(buttons));
+  });
+});
+bot.action(/^delvouc_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.run(`DELETE FROM vouchers WHERE code = ?`, [ctx.match[1]]);
+  ctx.reply('✅ Voucher dihapus!');
+});
 
-bot.action('admin_broadcast_menu', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'BROADCAST_TEXT' }; ctx.reply('Masukkan pesan broadcast:'); });
-bot.action('admin_bc_button', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'BC_BTN_TEXT' }; ctx.reply('Masukkan teks broadcast (+ tombol):'); });
-bot.action('admin_add_prod', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'ADD_PROD_NAME' }; ctx.reply('Masukkan Nama Produk:'); });
-bot.action('admin_del_prod', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.all(`SELECT * FROM products`, (err, rows) => { if (!rows || rows.length === 0) return ctx.reply('Tidak ada produk.'); const buttons = rows.map(p => [Markup.button.callback(`🗑️ ${p.name}`, `delprod_${p.id}`)]); ctx.reply('Pilih produk yang dihapus:', Markup.inlineKeyboard(buttons)); }); });
-bot.action(/^delprod_(.+)$/, (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.run(`DELETE FROM products WHERE id = ?`, [ctx.match[1]]); db.run(`DELETE FROM stock_items WHERE product_id = ?`, [ctx.match[1]]); ctx.reply('✅ Produk dihapus!'); });
-bot.action('admin_add_stock', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.all(`SELECT * FROM products`, (err, rows) => { if (!rows || rows.length === 0) return ctx.reply('Tambah produk dulu!'); const buttons = rows.map(p => [Markup.button.callback(` ${p.name}`, `addstock_${p.id}`)]); ctx.reply('Pilih produk:', Markup.inlineKeyboard(buttons)); }); });
-bot.action(/^addstock_(.+)$/, (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'ADD_STOCK_BULK', prodId: ctx.match[1] }; ctx.reply('📥 TAMBAH STOK MASSAL\n\nPaste banyak akun/kode (setiap baris = 1 stok):'); });
-bot.action('admin_autoreply_type', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; userState[getAdminId()] = { step: 'ADD_AR_KEYWORD' }; ctx.reply('Masukkan Kata Kunci Auto-Reply:'); });
-bot.action('admin_del_autoreply', (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.all(`SELECT keyword FROM auto_reply`, (err, rows) => { if (!rows || rows.length === 0) return ctx.reply('Belum ada auto-reply.'); const buttons = rows.map(ar => [Markup.button.callback(`🗑️ ${ar.keyword}`, `delar_${ar.keyword}`)]); ctx.reply('Pilih Auto-Reply:', Markup.inlineKeyboard(buttons)); }); });
-bot.action(/^delar_(.+)$/, (ctx) => { if (Number(ctx.from.id) !== getAdminId()) return; db.run(`DELETE FROM auto_reply WHERE keyword = ?`, [ctx.match[1]]); ctx.reply('✅ Auto-reply dihapus!'); });
+const showUserManageCard = (ctx, targetId) => {
+  db.get(`SELECT * FROM users WHERE user_id = ?`, [targetId], (err, row) => {
+    if (!row) {
+      db.run(`INSERT INTO users (user_id, upline_id, balance, tier) VALUES (?, 0, 0, 'Bronze')`, [targetId], () => showUserManageCard(ctx, targetId));
+      return;
+    }
+    const tier = row.tier || 'Bronze';
+    const balance = tier === 'Owner' ? '∞ (Unlimited)' : `Rp${(row.balance || 0).toLocaleString('id-ID')}`;
+    ctx.reply(`👤 *KELOLA USER*\n\n🆔 *ID:* \`${targetId}\`\n💳 Saldo: ${balance}\n🏷️ Tier: ${tier}`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
+      [Markup.button.callback('➕ Tambah Saldo', `adduser_saldo_${targetId}`), Markup.button.callback('➖ Kurangi Saldo', `subuser_saldo_${targetId}`)],
+      [Markup.button.callback('🥉 Bronze', `settier_${targetId}_Bronze`), Markup.button.callback('🥈 Silver', `settier_${targetId}_Silver`)],
+      [Markup.button.callback('🥇 Gold', `settier_${targetId}_Gold`), Markup.button.callback('👑 Owner', `settier_${targetId}_Owner`)],
+      [Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]
+    ]) });
+  });
+};
+
+bot.action('admin_manage_user', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADMIN_MANAGE_USER_ID' };
+  ctx.reply('Masukkan ID Telegram user:');
+});
+bot.action(/^adduser_saldo_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADMIN_ADD_SALDO_AMOUNT', targetId: ctx.match[1] };
+  ctx.reply(`Masukkan nominal saldo yang *DITAMBAH* untuk \`${ctx.match[1]}\`:`, { parse_mode: 'Markdown' });
+});
+bot.action(/^subuser_saldo_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADMIN_SUB_SALDO_AMOUNT', targetId: ctx.match[1] };
+  ctx.reply(`Masukkan nominal saldo yang *DIKURANGI* dari \`${ctx.match[1]}\`:`, { parse_mode: 'Markdown' });
+});
+bot.action(/^settier_(.+)_(Bronze|Silver|Gold|Owner)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const targetId = ctx.match[1];
+  const tier = ctx.match[2];
+  db.run(`UPDATE users SET tier = ? WHERE user_id = ?`, [tier, targetId]);
+  ctx.answerCbQuery(`✅ Tier ${targetId} → ${tier}`, { show_alert: true });
+  bot.telegram.sendMessage(targetId, `🏷️ *TIER DIPERBARUI*\n\nTier Anda: *${tier}*`, { parse_mode: 'Markdown' }).catch(() => {});
+  showUserManageCard(ctx, targetId);
+});
+
+bot.action('admin_broadcast_menu', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'BROADCAST_TEXT' };
+  ctx.reply('Masukkan pesan broadcast:');
+});
+bot.action('admin_bc_button', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'BC_BTN_TEXT' };
+  ctx.reply('Masukkan teks broadcast (+ tombol):');
+});
+bot.action('admin_add_prod', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_PROD_NAME' };
+  ctx.reply('Masukkan Nama Produk:');
+});
+bot.action('admin_del_prod', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM products`, (err, rows) => {
+    if (!rows || rows.length === 0) return ctx.reply('Tidak ada produk.');
+    const buttons = rows.map(p => [Markup.button.callback(`🗑️ ${p.name}`, `delprod_${p.id}`)]);
+    ctx.reply('Pilih produk yang dihapus:', Markup.inlineKeyboard(buttons));
+  });
+});
+bot.action(/^delprod_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.run(`DELETE FROM products WHERE id = ?`, [ctx.match[1]]);
+  db.run(`DELETE FROM stock_items WHERE product_id = ?`, [ctx.match[1]]);
+  ctx.reply('✅ Produk dihapus!');
+});
+bot.action('admin_add_stock', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM products`, (err, rows) => {
+    if (!rows || rows.length === 0) return ctx.reply('Tambah produk dulu!');
+    const buttons = rows.map(p => [Markup.button.callback(`📦 ${p.name}`, `addstock_${p.id}`)]);
+    ctx.reply('Pilih produk:', Markup.inlineKeyboard(buttons));
+  });
+});
+bot.action(/^addstock_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_STOCK_BULK', prodId: ctx.match[1] };
+  ctx.reply('📥 TAMBAH STOK MASSAL\n\nPaste banyak akun/kode (setiap baris = 1 stok):');
+});
+bot.action('admin_autoreply_type', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_AR_KEYWORD' };
+  ctx.reply('Masukkan Kata Kunci Auto-Reply:');
+});
+bot.action('admin_del_autoreply', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT keyword FROM auto_reply`, (err, rows) => {
+    if (!rows || rows.length === 0) return ctx.reply('Belum ada auto-reply.');
+    const buttons = rows.map(ar => [Markup.button.callback(`🗑️ ${ar.keyword}`, `delar_${ar.keyword}`)]);
+    ctx.reply('Pilih Auto-Reply:', Markup.inlineKeyboard(buttons));
+  });
+});
+bot.action(/^delar_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.run(`DELETE FROM auto_reply WHERE keyword = ?`, [ctx.match[1]]);
+  ctx.reply('✅ Auto-reply dihapus!');
+});
 
 // Handler Audio
 bot.on('audio', async (ctx) => {
@@ -638,50 +931,73 @@ bot.on('photo', async (ctx) => {
   const userId = ctx.from.id;
   const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
   if (Number(userId) === adminId && userState[adminId]) {
-    if (userState[adminId].step === 'SET_HEADER_PHOTO') { db.run(`UPDATE store SET photo = ? WHERE id = 1`, [photoId]); delete userState[adminId]; return ctx.reply('✅ Foto Banner diganti!'); }
-    if (userState[adminId].step === 'SET_QRIS_PHOTO') { db.run(`UPDATE store SET qris = ? WHERE id = 1`, [photoId]); delete userState[adminId]; return ctx.reply('✅ Foto QRIS diatur!'); }
-    if (userState[adminId].step === 'ADD_PROD_PHOTO') { const { name, price } = userState[adminId]; db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, ?)`, [name, price, photoId]); delete userState[adminId]; return ctx.reply('✅ Produk dengan foto ditambahkan!'); }
+    if (userState[adminId].step === 'SET_HEADER_PHOTO') {
+      db.run(`UPDATE store SET photo = ? WHERE id = 1`, [photoId]);
+      delete userState[adminId];
+      return ctx.reply('✅ Foto Banner diganti!');
+    }
+    if (userState[adminId].step === 'SET_QRIS_PHOTO') {
+      db.run(`UPDATE store SET qris = ? WHERE id = 1`, [photoId]);
+      delete userState[adminId];
+      return ctx.reply('✅ Foto QRIS diatur!');
+    }
+    if (userState[adminId].step === 'ADD_PROD_PHOTO') {
+      const { name, price } = userState[adminId];
+      db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, ?)`, [name, price, photoId]);
+      delete userState[adminId];
+      return ctx.reply('✅ Produk dengan foto ditambahkan!');
+    }
     return;
   }
   const state = userState[userId];
   if (state && state.step === 'UPLOAD_TOPUP_PROOF') {
-    const topupId = state.topupId; delete userState[userId];
+    const topupId = state.topupId;
+    delete userState[userId];
     db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
-      if (!topup) return ctx.reply('️ Data top up tidak ditemukan.');
+      if (!topup) return ctx.reply('⚠️ Data top up tidak ditemukan.');
       db.run(`UPDATE topups SET proof = ?, status = 'PENDING_REVIEW' WHERE id = ?`, [photoId, topupId]);
       ctx.replyWithMarkdown('✅ Bukti top up diterima! Mohon tunggu verifikasi admin.');
       if (adminId) {
         const reviewText = `💰 *KONFIRMASI TOP UP #${topupId}*\n\n💵 *Nominal:* Rp${topup.amount.toLocaleString('id-ID')}\n💳 *Total:* Rp${topup.total_amount.toLocaleString('id-ID')}\n👤 *User:* ${topup.username} (ID: ${topup.user_id})`;
-        bot.telegram.sendPhoto(adminId, photoId, { caption: reviewText, parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `topupapprove_${topupId}`), Markup.button.callback('❌ Reject', `topupreject_${topupId}`)]]) }).catch(() => {});
+        bot.telegram.sendPhoto(adminId, photoId, {
+          caption: reviewText, parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `topupapprove_${topupId}`), Markup.button.callback('❌ Reject', `topupreject_${topupId}`)]])
+        }).catch(() => {});
       }
     });
     return;
   }
   if (state && state.step === 'UPLOAD_PROOF') {
-    const orderId = state.orderId; delete userState[userId];
+    const orderId = state.orderId;
+    delete userState[userId];
     db.get(`SELECT o.*, p.name as product_name FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
       if (!order) return ctx.reply('⚠️ Pesanan tidak ditemukan.');
       db.run(`UPDATE orders SET proof = ?, status = 'PENDING_REVIEW' WHERE id = ?`, [photoId, orderId]);
       ctx.replyWithMarkdown('✅ Bukti transfer diterima! Mohon tunggu admin.');
       if (adminId) {
         const reviewText = `🧾 *KONFIRMASI PEMBAYARAN #${orderId}*\n\n📦 *Produk:* ${order.product_name} (${order.quantity || 1}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username} (ID: ${order.user_id})`;
-        bot.telegram.sendPhoto(adminId, photoId, { caption: reviewText, parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `approve_${orderId}`), Markup.button.callback('❌ Reject', `reject_${orderId}`)]]) }).catch(() => {});
+        bot.telegram.sendPhoto(adminId, photoId, {
+          caption: reviewText, parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `approve_${orderId}`), Markup.button.callback('❌ Reject', `reject_${orderId}`)]])
+        }).catch(() => {});
       }
     });
     return;
   }
 });
 
-// Handler Text (CS LIVE CHAT & ADMIN REPLY)
+// === HANDLER TEXT (CS LIVE CHAT & ADMIN REPLY) ===
 bot.on('text', async (ctx) => {
   const adminId = getAdminId();
   const userId = ctx.from.id;
   const state = userState[userId];
 
-  // ADMIN REPLY KE BUYER
+  // 1. ADMIN MEMBALAS PESAN USER
   if (Number(userId) === adminId && ctx.message.reply_to_message) {
     const repliedMsgId = ctx.message.reply_to_message.message_id;
-    const relay = await new Promise((resolve) => { db.get(`SELECT * FROM chat_relay WHERE admin_msg_id = ?`, [repliedMsgId], (err, row) => resolve(row)); });
+    const relay = await new Promise((resolve) => {
+      db.get(`SELECT * FROM chat_relay WHERE admin_msg_id = ?`, [repliedMsgId], (err, row) => resolve(row));
+    });
     if (relay) {
       bot.telegram.sendMessage(relay.buyer_id, `💬 *Admin:*\n${ctx.message.text}`, { parse_mode: 'Markdown' })
         .then(() => ctx.reply('✅ Balasan terkirim ke buyer.'))
@@ -690,18 +1006,22 @@ bot.on('text', async (ctx) => {
     }
   }
 
-  // USER KIRIM PESAN CS
+  // 2. USER MENGIRIM PESAN CS
   if (state && state.step === 'CS_CHAT') {
     const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
-    const relayText = `📞 *PESAN CS DARI BUYER*\n👤 ${buyerName} (ID: \`${userId}\`)\n\n${ctx.message.text}\n\n_️ Reply pesan ini untuk membalas ke buyer._`;
+    const relayText = `📞 *PESAN CS DARI BUYER*\n👤 ${buyerName} (ID: \`${userId}\`)\n\n${ctx.message.text}\n\n_↩️ Reply pesan ini untuk membalas ke buyer._`;
+    
     bot.telegram.sendMessage(adminId, relayText, { parse_mode: 'Markdown' })
-      .then((sentMsg) => { db.run(`INSERT OR REPLACE INTO chat_relay (admin_msg_id, buyer_id, buyer_name) VALUES (?, ?, ?)`, [sentMsg.message_id, userId, buyerName]); })
+      .then((sentMsg) => { 
+        db.run(`INSERT OR REPLACE INTO chat_relay (admin_msg_id, buyer_id, buyer_name) VALUES (?, ?, ?)`, [sentMsg.message_id, userId, buyerName]); 
+      })
       .catch(() => {});
+      
     ctx.reply('✅ Pesan Anda telah diteruskan ke Admin. Mohon tunggu balasan.');
     return;
   }
 
-  // AUTO REPLY
+  // 3. AUTO REPLY BIASA
   if (!state) {
     const textMsg = ctx.message.text.trim().toLowerCase();
     db.get(`SELECT * FROM auto_reply WHERE LOWER(keyword) = ?`, [textMsg], (err, ar) => {
@@ -713,11 +1033,12 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // HANDLER TEXT LAINNYA (SEARCH, VOUCHER, TOPUP, ADMIN SETTINGS)
+  // 4. HANDLER TEXT LAINNYA (SEARCH, VOUCHER, TOPUP, ADMIN SETTINGS)
   if (state.step === 'SEARCH_PRODUCT') {
-    const keyword = ctx.message.text.trim(); delete userState[ctx.from.id];
+    const keyword = ctx.message.text.trim();
+    delete userState[ctx.from.id];
     db.all(`SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.name LIKE ? GROUP BY p.id`, [`%${keyword}%`], async (err, products) => {
-      if (!products || products.length === 0) return ctx.replyWithMarkdown(`❌ Tidak ada produk "*${keyword}*"`, Markup.inlineKeyboard([[Markup.button.callback(' Katalog', 'user_catalog')]]));
+      if (!products || products.length === 0) return ctx.replyWithMarkdown(`❌ Tidak ada produk "*${keyword}*"`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Katalog', 'user_catalog')]]));
       let text = `🔍 *HASIL PENCARIAN ("${keyword}"):*\n\n`;
       let buttons = products.map(prod => [Markup.button.callback(`${prod.name} (Rp${prod.price.toLocaleString('id-ID')}) [${prod.stock_count}]`, `buy_${prod.id}`)]);
       buttons.push([Markup.button.callback('🔙 Katalog', 'user_catalog')]);
@@ -729,8 +1050,14 @@ bot.on('text', async (ctx) => {
   if (state.step === 'INPUT_VOUCHER') {
     const code = ctx.message.text.trim().toUpperCase();
     db.get(`SELECT * FROM vouchers WHERE code = ? AND quota > 0`, [code], (err, vouc) => {
-      if (!vouc) { ctx.reply('⚠️ Voucher tidak valid / habis!'); delete userState[ctx.from.id]; ctx.reply('Klik:', Markup.inlineKeyboard([[Markup.button.callback(' Lanjut Bayar', `pay_${state.prodId}_${state.qty}_0`)]])); }
-      else { delete userState[ctx.from.id]; ctx.reply(`🎉 *VOUCHER AKTIF:* Potongan Rp${vouc.discount.toLocaleString('id-ID')}`, Markup.inlineKeyboard([[Markup.button.callback('💳 Lanjut Bayar', `pay_${state.prodId}_${state.qty}_${vouc.discount}`)]])); }
+      if (!vouc) {
+        ctx.reply('⚠️ Voucher tidak valid / habis!');
+        delete userState[ctx.from.id];
+        ctx.reply('Klik:', Markup.inlineKeyboard([[Markup.button.callback('⏩ Lanjut Bayar', `pay_${state.prodId}_${state.qty}_0`)]]));
+      } else {
+        delete userState[ctx.from.id];
+        ctx.reply(`🎉 *VOUCHER AKTIF:* Potongan Rp${vouc.discount.toLocaleString('id-ID')}`, Markup.inlineKeyboard([[Markup.button.callback('💳 Lanjut Bayar', `pay_${state.prodId}_${state.qty}_${vouc.discount}`)]]));
+      }
     });
     return;
   }
@@ -738,7 +1065,8 @@ bot.on('text', async (ctx) => {
   if (state.step === 'TOPUP_AMOUNT') {
     const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
     if (!amount || amount < 500 || amount > 10000000) return ctx.reply('⚠️ Nominal tidak valid (500-10000000):');
-    delete userState[ctx.from.id]; processTopUp(ctx, amount);
+    delete userState[ctx.from.id];
+    processTopUp(ctx, amount);
     return;
   }
 
@@ -747,51 +1075,164 @@ bot.on('text', async (ctx) => {
     if (state.step === 'SCRIPT_SET_INFO') {
       const parts = ctx.message.text.split('|');
       if (parts.length !== 2) return ctx.reply('⚠️ Format salah! Gunakan: Nama|Harga');
-      const name = parts[0].trim(); const price = parseInt(parts[1].trim());
-      if (isNaN(price)) return ctx.reply('️ Harga harus angka!');
+      const name = parts[0].trim();
+      const price = parseInt(parts[1].trim());
+      if (isNaN(price)) return ctx.reply('⚠️ Harga harus angka!');
       db.get(`SELECT id FROM bot_scripts WHERE id = 1`, (err, row) => {
         if (!row) db.run(`INSERT INTO bot_scripts (id, name, price, stock) VALUES (1, ?, ?, 0)`, [name, price]);
         else db.run(`UPDATE bot_scripts SET name = ?, price = ? WHERE id = 1`, [name, price]);
-        delete userState[adminId]; ctx.reply('✅ Script info diupdate!');
+        delete userState[adminId];
+        ctx.reply('✅ Script info diupdate!');
       });
       return;
     }
-    if (state.step === 'SCRIPT_SET_TEXT') { db.run(`UPDATE bot_scripts SET instruction_text = ? WHERE id = 1`, [ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Teks instruksi diupdate!'); return; }
+    if (state.step === 'SCRIPT_SET_TEXT') {
+      db.run(`UPDATE bot_scripts SET instruction_text = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Teks instruksi diupdate!');
+      return;
+    }
     if (state.step === 'SCRIPT_ADD_STOCK') {
       const stock = parseInt(ctx.message.text.trim());
       if (isNaN(stock) || stock <= 0) return ctx.reply('⚠️ Angka tidak valid!');
       db.get(`SELECT id FROM bot_scripts WHERE id = 1`, (err, row) => {
         if (!row) return ctx.reply('⚠️ Script belum di-setting.');
-        db.run(`UPDATE bot_scripts SET stock = stock + ? WHERE id = 1`, [stock]); delete userState[adminId]; ctx.reply(`✅ Stok ditambah ${stock}!`);
+        db.run(`UPDATE bot_scripts SET stock = stock + ? WHERE id = 1`, [stock]);
+        delete userState[adminId];
+        ctx.reply(`✅ Stok ditambah ${stock}!`);
       });
       return;
     }
 
-    if (state.step === 'ADMIN_MANAGE_USER_ID') { const targetId = ctx.message.text.trim().replace(/[^0-9]/g, ''); delete userState[adminId]; if (!targetId) return ctx.reply('⚠️ ID tidak valid.'); showUserManageCard(ctx, targetId); }
-    else if (state.step === 'ADMIN_ADD_SALDO_AMOUNT') { const amount = parseInt(ctx.message.text.trim().replace(/\D/g, '')); const targetId = state.targetId; if (!amount || amount <= 0) return ctx.reply('⚠️ Angka tidak valid!'); delete userState[adminId]; db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [amount, targetId], () => { ctx.reply(`✅ Saldo \`${targetId}\` ditambah Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' }); bot.telegram.sendMessage(targetId, `💰 *SALDO BERTAMBAH*\n\nAdmin menambahkan Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' }).catch(() => {}); showUserManageCard(ctx, targetId); }); }
-    else if (state.step === 'ADMIN_SUB_SALDO_AMOUNT') { const amount = parseInt(ctx.message.text.trim().replace(/\D/g, '')); const targetId = state.targetId; if (!amount || amount <= 0) return ctx.reply('⚠️ Angka tidak valid!'); delete userState[adminId]; db.run(`UPDATE users SET balance = MAX(0, COALESCE(balance, 0) - ?) WHERE user_id = ?`, [amount, targetId], () => { ctx.reply(`✅ Saldo \`${targetId}\` dikurangi Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' }); bot.telegram.sendMessage(targetId, `⚠️ *SALDO DIKURANGI*\n\nAdmin mengurangi Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' }).catch(() => {}); showUserManageCard(ctx, targetId); }); }
-    else if (state.step === 'EDIT_STORE_NAME') { userState[adminId] = { step: 'EDIT_STORE_DESC', name: ctx.message.text.trim() }; ctx.reply('Masukkan Deskripsi Toko:'); }
-    else if (state.step === 'EDIT_STORE_DESC') { db.run(`UPDATE store SET name = ?, desc = ? WHERE id = 1`, [state.name, ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Info Toko diperbarui!'); }
-    else if (state.step === 'SET_WELCOME_MSG') { db.run(`UPDATE store SET welcome_msg = ? WHERE id = 1`, [ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Welcome diperbarui!'); }
-    else if (state.step === 'SET_LEAVE_MSG') { db.run(`UPDATE store SET leave_msg = ? WHERE id = 1`, [ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Leave diperbarui!'); }
-    else if (state.step === 'SET_ADMIN_UNAME') { db.run(`UPDATE store SET admin_uname = ? WHERE id = 1`, [ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Username CS diperbarui!'); }
-    else if (state.step === 'SET_REQ_CHANNEL') { db.run(`UPDATE store SET required_channel = ? WHERE id = 1`, [ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Channel diperbarui!'); }
-    else if (state.step === 'SET_LOG_GROUP') { db.run(`UPDATE store SET log_group_id = ? WHERE id = 1`, [ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ ID Grup Log diperbarui!'); }
-    else if (state.step === 'SET_REQ_GROUP') { db.run(`UPDATE store SET required_group = ? WHERE id = 1`, [ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Link Grup diperbarui!'); }
-    else if (state.step === 'ADD_VOUCHER_CODE') { userState[adminId] = { step: 'ADD_VOUCHER_DISC', code: ctx.message.text.trim().toUpperCase() }; ctx.reply('Masukkan Potongan Harga Voucher (angka):'); }
-    else if (state.step === 'ADD_VOUCHER_DISC') { const disc = parseInt(ctx.message.text.trim()); userState[adminId] = { step: 'ADD_VOUCHER_QUOTA', code: state.code, disc }; ctx.reply('Masukkan Kuota Voucher:'); }
-    else if (state.step === 'ADD_VOUCHER_QUOTA') { const quota = parseInt(ctx.message.text.trim()); db.run(`INSERT OR REPLACE INTO vouchers (code, discount, quota) VALUES (?, ?, ?)`, [state.code, state.disc, quota]); delete userState[adminId]; ctx.reply('✅ Voucher dibuat!'); }
-    else if (state.step === 'ADD_AR_KEYWORD') { userState[adminId] = { step: 'ADD_AR_CONTENT', keyword: ctx.message.text.trim() }; ctx.reply('Masukkan Balasan Auto-Reply:'); }
-    else if (state.step === 'ADD_AR_CONTENT') { db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply_type, content) VALUES (?, 'text', ?)`, [state.keyword, ctx.message.text.trim()]); delete userState[adminId]; ctx.reply('✅ Auto-Reply dibuat!'); }
-    else if (state.step === 'BROADCAST_TEXT') { const msgText = ctx.message.text.trim(); delete userState[adminId]; ctx.reply(' Mengirim Broadcast...'); db.all(`SELECT user_id FROM visitors`, (err, rows) => { if (rows) rows.forEach(r => bot.telegram.sendMessage(r.user_id, msgText, { parse_mode: 'Markdown' }).catch(() => {})); }); }
-    else if (state.step === 'BC_BTN_TEXT') { userState[adminId] = { step: 'BC_BTN_LABEL', msgText: ctx.message.text.trim() }; ctx.reply('Masukkan Label Tombol:'); }
-    else if (state.step === 'BC_BTN_LABEL') { userState[adminId] = { step: 'BC_BTN_URL', msgText: state.msgText, label: ctx.message.text.trim() }; ctx.reply('Masukkan URL Tombol:'); }
-    else if (state.step === 'BC_BTN_URL') { const url = ctx.message.text.trim(); const { msgText, label } = state; delete userState[adminId]; ctx.reply('🚀 Mengirim Broadcast Button...'); db.all(`SELECT user_id FROM visitors`, (err, rows) => { if (rows) rows.forEach(r => bot.telegram.sendMessage(r.user_id, msgText, Markup.inlineKeyboard([[Markup.button.url(label, url)]])).catch(() => {})); }); }
-    else if (state.step === 'ADD_PROD_NAME') { userState[adminId] = { step: 'ADD_PROD_PRICE', name: ctx.message.text.trim() }; ctx.reply('Masukkan Harga Produk (angka):'); }
-    else if (state.step === 'ADD_PROD_PRICE') { const price = parseInt(ctx.message.text.trim()); if (isNaN(price)) return ctx.reply('⚠️ Angka tidak valid!'); userState[adminId] = { step: 'ADD_PROD_PHOTO', name: state.name, price }; ctx.reply('📸 Kirim foto produk (atau ketik *lewati*):', { parse_mode: 'Markdown' }); }
-    else if (state.step === 'ADD_PROD_PHOTO' && ctx.message.text.toLowerCase() === 'lewati') { db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, '')`, [state.name, state.price]); delete userState[adminId]; ctx.reply('✅ Produk ditambahkan tanpa foto!'); }
-    else if (state.step === 'ADD_STOCK_BULK') { const lines = ctx.message.text.split('\n').map(i => i.trim()).filter(i => i !== ''); if (lines.length === 0) return ctx.reply('⚠️ Tidak ada stok terdeteksi.'); let inserted = 0; const stmt = db.prepare(`INSERT INTO stock_items (product_id, content) VALUES (?, ?)`); lines.forEach(item => { stmt.run(state.prodId, item); inserted++; }); stmt.finalize(); userState[adminId] = { step: 'ADD_STOCK_NOTE', prodId: state.prodId, inserted }; ctx.reply(`✅ *${inserted} stok* ditambahkan!\n\n📝 Kirim *catatan/arahan* untuk pembeli (atau ketik *lewati*):`, { parse_mode: 'Markdown' }); }
-    else if (state.step === 'ADD_STOCK_NOTE') { const note = ctx.message.text.trim(); if (note.toLowerCase() === 'lewati') { delete userState[adminId]; return ctx.reply(`✅ *${state.inserted} stok* tersimpan. Catatan tidak diubah.`, { parse_mode: 'Markdown' }); } db.run(`UPDATE products SET note = ? WHERE id = ?`, [note, state.prodId], (err) => { if (err) return ctx.reply('⚠️ Gagal simpan catatan.'); delete userState[adminId]; ctx.reply(`✅ *${state.inserted} stok* tersimpan + catatan disimpan!`, { parse_mode: 'Markdown' }); }); }
+    if (state.step === 'ADMIN_MANAGE_USER_ID') {
+      const targetId = ctx.message.text.trim().replace(/[^0-9]/g, '');
+      delete userState[adminId];
+      if (!targetId) return ctx.reply('⚠️ ID tidak valid.');
+      showUserManageCard(ctx, targetId);
+    } else if (state.step === 'ADMIN_ADD_SALDO_AMOUNT') {
+      const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
+      const targetId = state.targetId;
+      if (!amount || amount <= 0) return ctx.reply('⚠️ Angka tidak valid!');
+      delete userState[adminId];
+      db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [amount, targetId], () => {
+        ctx.reply(`✅ Saldo \`${targetId}\` ditambah Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' });
+        bot.telegram.sendMessage(targetId, `💰 *SALDO BERTAMBAH*\n\nAdmin menambahkan Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' }).catch(() => {});
+        showUserManageCard(ctx, targetId);
+      });
+    } else if (state.step === 'ADMIN_SUB_SALDO_AMOUNT') {
+      const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
+      const targetId = state.targetId;
+      if (!amount || amount <= 0) return ctx.reply('⚠️ Angka tidak valid!');
+      delete userState[adminId];
+      db.run(`UPDATE users SET balance = MAX(0, COALESCE(balance, 0) - ?) WHERE user_id = ?`, [amount, targetId], () => {
+        ctx.reply(`✅ Saldo \`${targetId}\` dikurangi Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' });
+        bot.telegram.sendMessage(targetId, `⚠️ *SALDO DIKURANGI*\n\nAdmin mengurangi Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' }).catch(() => {});
+        showUserManageCard(ctx, targetId);
+      });
+    } else if (state.step === 'EDIT_STORE_NAME') {
+      userState[adminId] = { step: 'EDIT_STORE_DESC', name: ctx.message.text.trim() };
+      ctx.reply('Masukkan Deskripsi Toko:');
+    } else if (state.step === 'EDIT_STORE_DESC') {
+      db.run(`UPDATE store SET name = ?, desc = ? WHERE id = 1`, [state.name, ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Info Toko diperbarui!');
+    } else if (state.step === 'SET_WELCOME_MSG') {
+      db.run(`UPDATE store SET welcome_msg = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Welcome diperbarui!');
+    } else if (state.step === 'SET_LEAVE_MSG') {
+      db.run(`UPDATE store SET leave_msg = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Leave diperbarui!');
+    } else if (state.step === 'SET_ADMIN_UNAME') {
+      db.run(`UPDATE store SET admin_uname = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Username CS diperbarui!');
+    } else if (state.step === 'SET_REQ_CHANNEL') {
+      db.run(`UPDATE store SET required_channel = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Channel diperbarui!');
+    } else if (state.step === 'SET_LOG_GROUP') {
+      db.run(`UPDATE store SET log_group_id = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ ID Grup Log diperbarui!');
+    } else if (state.step === 'SET_REQ_GROUP') {
+      db.run(`UPDATE store SET required_group = ? WHERE id = 1`, [ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Link Grup diperbarui!');
+    } else if (state.step === 'ADD_VOUCHER_CODE') {
+      userState[adminId] = { step: 'ADD_VOUCHER_DISC', code: ctx.message.text.trim().toUpperCase() };
+      ctx.reply('Masukkan Potongan Harga Voucher (angka):');
+    } else if (state.step === 'ADD_VOUCHER_DISC') {
+      const disc = parseInt(ctx.message.text.trim());
+      userState[adminId] = { step: 'ADD_VOUCHER_QUOTA', code: state.code, disc };
+      ctx.reply('Masukkan Kuota Voucher:');
+    } else if (state.step === 'ADD_VOUCHER_QUOTA') {
+      const quota = parseInt(ctx.message.text.trim());
+      db.run(`INSERT OR REPLACE INTO vouchers (code, discount, quota) VALUES (?, ?, ?)`, [state.code, state.disc, quota]);
+      delete userState[adminId];
+      ctx.reply('✅ Voucher dibuat!');
+    } else if (state.step === 'ADD_AR_KEYWORD') {
+      userState[adminId] = { step: 'ADD_AR_CONTENT', keyword: ctx.message.text.trim() };
+      ctx.reply('Masukkan Balasan Auto-Reply:');
+    } else if (state.step === 'ADD_AR_CONTENT') {
+      db.run(`INSERT OR REPLACE INTO auto_reply (keyword, reply_type, content) VALUES (?, 'text', ?)`, [state.keyword, ctx.message.text.trim()]);
+      delete userState[adminId];
+      ctx.reply('✅ Auto-Reply dibuat!');
+    } else if (state.step === 'BROADCAST_TEXT') {
+      const msgText = ctx.message.text.trim();
+      delete userState[adminId];
+      ctx.reply('🚀 Mengirim Broadcast...');
+      db.all(`SELECT user_id FROM visitors`, (err, rows) => {
+        if (rows) rows.forEach(r => bot.telegram.sendMessage(r.user_id, msgText, { parse_mode: 'Markdown' }).catch(() => {}));
+      });
+    } else if (state.step === 'BC_BTN_TEXT') {
+      userState[adminId] = { step: 'BC_BTN_LABEL', msgText: ctx.message.text.trim() };
+      ctx.reply('Masukkan Label Tombol:');
+    } else if (state.step === 'BC_BTN_LABEL') {
+      userState[adminId] = { step: 'BC_BTN_URL', msgText: state.msgText, label: ctx.message.text.trim() };
+      ctx.reply('Masukkan URL Tombol:');
+    } else if (state.step === 'BC_BTN_URL') {
+      const url = ctx.message.text.trim();
+      const { msgText, label } = state;
+      delete userState[adminId];
+      ctx.reply('🚀 Mengirim Broadcast Button...');
+      db.all(`SELECT user_id FROM visitors`, (err, rows) => {
+        if (rows) rows.forEach(r => bot.telegram.sendMessage(r.user_id, msgText, Markup.inlineKeyboard([[Markup.button.url(label, url)]])).catch(() => {}));
+      });
+    } else if (state.step === 'ADD_PROD_NAME') {
+      userState[adminId] = { step: 'ADD_PROD_PRICE', name: ctx.message.text.trim() };
+      ctx.reply('Masukkan Harga Produk (angka):');
+    } else if (state.step === 'ADD_PROD_PRICE') {
+      const price = parseInt(ctx.message.text.trim());
+      if (isNaN(price)) return ctx.reply('⚠️ Angka tidak valid!');
+      userState[adminId] = { step: 'ADD_PROD_PHOTO', name: state.name, price };
+      ctx.reply('📸 Kirim foto produk (atau ketik *lewati*):', { parse_mode: 'Markdown' });
+    } else if (state.step === 'ADD_PROD_PHOTO' && ctx.message.text.toLowerCase() === 'lewati') {
+      db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, '')`, [state.name, state.price]);
+      delete userState[adminId];
+      ctx.reply('✅ Produk ditambahkan tanpa foto!');
+    } else if (state.step === 'ADD_STOCK_BULK') {
+      const lines = ctx.message.text.split('\n').map(i => i.trim()).filter(i => i !== '');
+      if (lines.length === 0) return ctx.reply('⚠️ Tidak ada stok terdeteksi.');
+      let inserted = 0;
+      const stmt = db.prepare(`INSERT INTO stock_items (product_id, content) VALUES (?, ?)`);
+      lines.forEach(item => { stmt.run(state.prodId, item); inserted++; });
+      stmt.finalize();
+      userState[adminId] = { step: 'ADD_STOCK_NOTE', prodId: state.prodId, inserted };
+      ctx.reply(`✅ *${inserted} stok* ditambahkan!\n\n📝 Kirim *catatan/arahan* untuk pembeli (atau ketik *lewati*):`, { parse_mode: 'Markdown' });
+    } else if (state.step === 'ADD_STOCK_NOTE') {
+      const note = ctx.message.text.trim();
+      if (note.toLowerCase() === 'lewati') {
+        delete userState[adminId];
+        return ctx.reply(`✅ *${state.inserted} stok* tersimpan. Catatan tidak diubah.`, { parse_mode: 'Markdown' });
+      }
+      db.run(`UPDATE products SET note = ? WHERE id = ?`, [note, state.prodId], (err) => {
+        if (err) return ctx.reply('⚠️ Gagal simpan catatan.');
+        delete userState[adminId];
+        ctx.reply(`✅ *${state.inserted} stok* tersimpan + catatan disimpan!`, { parse_mode: 'Markdown' });
+      });
+    }
   }
 });
 
@@ -802,17 +1243,17 @@ const setupCommandMenu = async () => {
       { command: 'katalog', description: '🛒 Katalog Produk' },
       { command: 'pesanan', description: '📦 Riwayat Pesanan' },
       { command: 'referral', description: '🔗 Link Referral' },
-      { command: 'cs', description: ' Customer Service' }
+      { command: 'cs', description: '📞 Customer Service' }
     ]);
     const adminId = getAdminId();
     if (adminId) {
       await bot.telegram.setMyCommands([
-        { command: 'start', description: ' Menu Utama' },
+        { command: 'start', description: '🏠 Menu Utama' },
         { command: 'katalog', description: '🛒 Katalog Produk' },
         { command: 'pesanan', description: '📦 Riwayat Pesanan' },
-        { command: 'referral', description: ' Link Referral' },
+        { command: 'referral', description: '🔗 Link Referral' },
         { command: 'cs', description: '📞 Customer Service' },
-        { command: 'admin', description: '️ Dashboard Admin' }
+        { command: 'admin', description: '⚙️ Dashboard Admin' }
       ], { scope: { type: 'chat', chat_id: adminId } });
     }
   } catch (e) { console.log('Gagal set command menu:', e.message); }
@@ -836,17 +1277,22 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
     let matchedType = null, matchedId = null;
 
     db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, scriptOrderByTrx) => {
-      const findScriptOrder = (callback) => { if (scriptOrderByTrx) return callback(scriptOrderByTrx); db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy)); };
+      const findScriptOrder = (callback) => {
+        if (scriptOrderByTrx) return callback(scriptOrderByTrx);
+        db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy));
+      };
       findScriptOrder(async (scriptOrder) => {
         if (scriptOrder) {
-          // Approve script order logic here (simplified for webhook)
           db.run(`UPDATE script_orders SET status = 'APPROVED' WHERE id = ?`, [scriptOrder.id]);
           matchedType = 'script_order'; matchedId = scriptOrder.id;
           db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [transactionId, matchedType, matchedId, amount, now]);
           return;
         }
         db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, orderByTrx) => {
-          const findOrder = (callback) => { if (orderByTrx) return callback(orderByTrx); db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy)); };
+          const findOrder = (callback) => {
+            if (orderByTrx) return callback(orderByTrx);
+            db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy));
+          };
           findOrder(async (order) => {
             if (order) {
               const result = await approveOrderById(order.id);
@@ -855,7 +1301,10 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
               return;
             }
             db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, topupByTrx) => {
-              const findTopup = (callback) => { if (topupByTrx) return callback(topupByTrx); db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND total_amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy)); };
+              const findTopup = (callback) => {
+                if (topupByTrx) return callback(topupByTrx);
+                db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND total_amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy));
+              };
               findTopup(async (topup) => {
                 if (topup) {
                   const result = await approveTopupById(topup.id);
