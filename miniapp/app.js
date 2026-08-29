@@ -50,6 +50,7 @@ const loadMe = async () => {
   ME = await API('/api/me');
   document.getElementById('tierBadge').textContent = ME.tier || 'Bronze';
   document.getElementById('balanceAmount').textContent = ME.balance === null ? '∞ (Unlimited)' : formatRp(ME.balance);
+  document.getElementById('txCount').textContent = `${ME.transaction_count || 0} transaksi`;
   document.getElementById('btnAdminDots').classList.toggle('hidden', !ME.isAdmin);
 };
 
@@ -103,7 +104,54 @@ const renderProductList = (containerId, rows, clickable) => {
   }
 };
 
+const starsHtml = (avg) => {
+  const rounded = Math.round(avg || 0);
+  let out = '';
+  for (let i = 1; i <= 5; i++) out += `<span${i > rounded ? ' class="empty"' : ''}>★</span>`;
+  return out;
+};
+
 const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Katalog dirender sebagai grid kartu (foto + nama + harga + rating + tombol beli),
+// data mentah disimpan supaya bisa diurutkan ulang tanpa fetch ulang ke server.
+let CATALOG_ROWS = [];
+
+const renderProductGrid = (rows) => {
+  const container = document.getElementById('productList');
+  if (!rows || rows.length === 0) {
+    container.innerHTML = `<div class="empty-state">💀 Belum ada produk.</div>`;
+    return;
+  }
+  container.innerHTML = rows.map(p => `
+    <div class="grid-card" data-id="${p.id}">
+      <div class="grid-photo-wrap">
+        ${p.photo ? `<img src="${p.photo}" alt="${escapeHtml(p.name)}" />` : `<span class="grid-photo-placeholder">📦</span>`}
+        <span class="grid-stock-pill ${p.stock_count > 0 ? 'in' : 'out'}">${p.stock_count > 0 ? 'STOK TERSEDIA' : 'STOK HABIS'}</span>
+      </div>
+      <div class="grid-body">
+        <div class="grid-name">${escapeHtml(p.name)}</div>
+        <div class="grid-price">${formatRp(p.price)}</div>
+        <div class="grid-stars">${starsHtml(p.avg_rating)}</div>
+        <button class="grid-buy-btn" data-id="${p.id}" ${p.stock_count > 0 ? '' : 'disabled'}>🛒 ${p.stock_count > 0 ? 'Beli Sekarang' : 'Stok Habis'}</button>
+      </div>
+    </div>
+  `).join('');
+  container.querySelectorAll('.grid-card, .grid-buy-btn').forEach(el => {
+    el.addEventListener('click', (e) => { e.stopPropagation(); openProduct(el.dataset.id); });
+  });
+};
+
+const applySortAndRender = () => {
+  const mode = document.getElementById('sortSelect').value;
+  const rows = [...CATALOG_ROWS];
+  if (mode === 'termurah') rows.sort((a, b) => a.price - b.price);
+  else if (mode === 'termahal') rows.sort((a, b) => b.price - a.price);
+  else if (mode === 'terlaris') rows.sort((a, b) => (b.sold_count || 0) - (a.sold_count || 0));
+  else rows.sort((a, b) => b.id - a.id); // terbaru
+  renderProductGrid(rows);
+};
+document.getElementById('sortSelect').addEventListener('change', applySortAndRender);
 
 let searchTimer = null;
 document.getElementById('searchInput').addEventListener('input', (e) => {
@@ -113,8 +161,8 @@ document.getElementById('searchInput').addEventListener('input', (e) => {
 
 const loadCatalog = async (q = '') => {
   document.getElementById('productList').innerHTML = `<div class="loading-spinner">Memuat produk...</div>`;
-  const rows = await API(`/api/products${q ? `?q=${encodeURIComponent(q)}` : ''}`);
-  renderProductList('productList', rows, true);
+  CATALOG_ROWS = await API(`/api/products${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  applySortAndRender();
 };
 
 const loadStockLive = async () => {
@@ -162,16 +210,24 @@ const openProduct = async (id) => {
     </div>
   ` : '';
 
+  const buyButtonsHtml = isSimpleProduct ? `
+    <div class="buy-btn-group">
+      <button class="btn-saldo" id="btnBuySaldo" ${p.stock_count <= 0 ? 'disabled' : ''}>💰 Bayar Pakai Saldo</button>
+      <button class="btn-primary" id="btnBuyQris" ${p.stock_count <= 0 ? 'disabled' : ''}>📱 Bayar via QRIS</button>
+    </div>
+  ` : '';
+
   detail.innerHTML = `
     <div class="back-link" id="backToKatalog">← Kembali ke Katalog</div>
     ${p.photo ? `<img class="detail-photo" src="${p.photo}" />` : ''}
     <div class="detail-title">${escapeHtml(p.name)}</div>
     <div class="detail-price">${formatRp(p.price)} ${minQty > 1 ? `<span style="color:var(--hint);font-weight:400;font-size:12px">(min. beli ${minQty})</span>` : ''}</div>
+    <div class="detail-stars">${starsHtml(p.avg_rating)} ${p.rating_count ? `<span class="detail-rating-count">(${p.rating_count} rating)</span>` : ''}</div>
     <span class="stock-pill ${p.stock_count > 0 ? 'in' : 'out'}" style="width:fit-content">${p.stock_count > 0 ? `${p.stock_count} Stok Tersedia` : 'Stok Habis'}</span>
     ${p.note ? `<div class="detail-note">📝 ${escapeHtml(p.note)}</div>` : ''}
     ${variantHtml}
     ${stepperHtml}
-    ${isSimpleProduct ? `<button class="btn-primary" id="btnBuy" ${p.stock_count <= 0 ? 'disabled' : ''}>🛒 Beli Sekarang</button>` : ''}
+    ${buyButtonsHtml}
   `;
 
   document.getElementById('backToKatalog').addEventListener('click', () => showView('katalog'));
@@ -190,8 +246,10 @@ const openProduct = async (id) => {
   if (qtyPlus) qtyPlus.addEventListener('click', () => clampQty(CURRENT_QTY + 1));
   if (qtyInput) qtyInput.addEventListener('change', () => clampQty(qtyInput.value));
 
-  const buyBtn = document.getElementById('btnBuy');
-  if (buyBtn) buyBtn.addEventListener('click', () => goBuy(p.id));
+  const buySaldoBtn = document.getElementById('btnBuySaldo');
+  const buyQrisBtn = document.getElementById('btnBuyQris');
+  if (buySaldoBtn) buySaldoBtn.addEventListener('click', () => goBuySaldo(p.id));
+  if (buyQrisBtn) buyQrisBtn.addEventListener('click', () => goBuyQris(p.id));
   detail.querySelectorAll('.variant-item').forEach(v => v.addEventListener('click', () => openProduct(v.dataset.id)));
 };
 
@@ -209,8 +267,8 @@ const postJSON = (path, body) => fetch(path, {
   return data;
 });
 
-const goBuy = async (id) => {
-  const btn = document.getElementById('btnBuy');
+const goBuyQris = async (id) => {
+  const btn = document.getElementById('btnBuyQris');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Membuat QRIS...'; }
   try {
     const data = await postJSON('/api/checkout/product', { prodId: id, qty: CURRENT_QTY });
@@ -227,9 +285,28 @@ const goBuy = async (id) => {
     } else {
       alert(e.message);
     }
-    if (btn) { btn.disabled = false; btn.textContent = '🛒 Beli Sekarang'; }
+    if (btn) { btn.disabled = false; btn.textContent = '📱 Bayar via QRIS'; }
   }
 };
+
+const goBuySaldo = async (id) => {
+  const btn = document.getElementById('btnBuySaldo');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Memproses...'; }
+  try {
+    const data = await postJSON('/api/checkout/product-saldo', { prodId: id, qty: CURRENT_QTY });
+    showView('saldo-success');
+    document.getElementById('saldoSuccessTitle').textContent = `🎉 Pesanan #${data.orderId} — ${data.productName}`;
+    document.getElementById('saldoSuccessDetail').textContent =
+      `${data.qty}x • Total ${formatRp(data.totalCost)}\n\n${data.stockContents}${data.note ? `\n\n📝 ${data.note}` : ''}`;
+    loadMe();
+    checkPending();
+  } catch (e) {
+    alert(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '💰 Bayar Pakai Saldo'; }
+  }
+};
+
+document.getElementById('backFromSaldoSuccess').addEventListener('click', () => showView('katalog'));
 
 // ====== PESANAN ======
 const loadOrders = async () => {
@@ -379,6 +456,9 @@ const showQrisView = (type, data) => {
   statusEl.textContent = '⏳ Menunggu pembayaran...';
 
   const id = type === 'topup' ? data.topupId : data.orderId;
+  const dlBtn = document.getElementById('btnDownloadQris');
+  dlBtn.href = data.qrisImage;
+  dlBtn.download = `qris-${type}-${id || Date.now()}.png`;
   const statusPath = type === 'topup' ? `/api/topup-status/${id}` : `/api/order-status/${id}`;
   const expiresAt = new Date(data.expiresAt).getTime();
 
@@ -454,6 +534,15 @@ document.querySelectorAll('.drawer-tab').forEach(tab => {
   });
 });
 
+// Ubah file gambar yang dipilih admin jadi data URL (base64) buat disimpan di DB,
+// sama kayak cara qris_image disimpan di sistem ini — gak butuh server upload terpisah.
+const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result);
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
 const loadAdminProducts = async () => {
   const list = document.getElementById('adminProductList');
   list.innerHTML = `<div class="loading-spinner">Memuat produk...</div>`;
@@ -462,20 +551,45 @@ const loadAdminProducts = async () => {
   list.innerHTML = rows.map(p => `
     <div class="admin-card">
       <div class="admin-card-title">${escapeHtml(p.name)} ${p.parent_id ? '(varian)' : ''}</div>
+      <label class="admin-photo-preview" data-id="${p.id}">
+        ${p.photo ? `<img src="${p.photo}" />` : '📷 Tap buat pasang foto produk'}
+        <input type="file" accept="image/*" class="admin-photo-input" />
+      </label>
       <div class="admin-field-row"><label>Harga</label><input type="number" class="admin-price" value="${p.price}" /></div>
       <div class="admin-field-row"><label>Min. Beli</label><input type="number" class="admin-minqty" value="${p.min_qty || 1}" min="1" /></div>
+      <label class="admin-label" style="margin-top:2px">Deskripsi Produk</label>
+      <textarea class="admin-input admin-note-textarea" placeholder="Deskripsi/catatan produk...">${escapeHtml(p.note || '')}</textarea>
       <button class="admin-save-btn" data-id="${p.id}">💾 Simpan</button>
     </div>
   `).join('');
+
+  list.querySelectorAll('.admin-photo-preview').forEach(label => {
+    const input = label.querySelector('.admin-photo-input');
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return;
+      if (file.size > 4 * 1024 * 1024) return alert('Ukuran foto maksimal 4MB ya.');
+      const dataUrl = await fileToDataUrl(file);
+      label.dataset.newPhoto = dataUrl;
+      label.innerHTML = `<img src="${dataUrl}" />`;
+      label.appendChild(input);
+    });
+  });
+
   list.querySelectorAll('.admin-save-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const card = btn.closest('.admin-card');
       const price = card.querySelector('.admin-price').value;
       const minQty = card.querySelector('.admin-minqty').value;
+      const note = card.querySelector('.admin-note-textarea').value;
+      const photoLabel = card.querySelector('.admin-photo-preview');
+      const body = { price, min_qty: minQty, note };
+      if (photoLabel.dataset.newPhoto) body.photo = photoLabel.dataset.newPhoto;
       btn.disabled = true; btn.textContent = '⏳...';
       try {
-        await postJSON(`/api/admin/products/${btn.dataset.id}`, { price, min_qty: minQty });
+        await postJSON(`/api/admin/products/${btn.dataset.id}`, body);
         btn.textContent = '✔ Tersimpan';
+        delete photoLabel.dataset.newPhoto;
       } catch (e) {
         alert(e.message);
         btn.textContent = '💾 Simpan';
@@ -486,6 +600,57 @@ const loadAdminProducts = async () => {
     });
   });
 };
+
+// ====== ADMIN: KELOLA USER (saldo & tier, sinkron sama bot Telegram) ======
+let ADMIN_VIEWED_USER = null;
+
+document.getElementById('btnLoadUser').addEventListener('click', async () => {
+  const uid = document.getElementById('adminUserId').value.trim();
+  if (!uid) return alert('Masukkan ID Telegram user dulu.');
+  const btn = document.getElementById('btnLoadUser');
+  btn.disabled = true;
+  try {
+    const data = await API(`/api/admin/user/${uid}`);
+    ADMIN_VIEWED_USER = uid;
+    document.getElementById('adminUserResult').classList.remove('hidden');
+    document.getElementById('adminUserBalance').textContent = formatRp(data.balance);
+    document.getElementById('adminUserTier').textContent = data.tier;
+    document.getElementById('adminUserTx').textContent = data.transaction_count || 0;
+    document.querySelectorAll('.tier-btn').forEach(b => b.classList.toggle('active', b.dataset.tier === data.tier));
+  } catch (e) {
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+const adjustSaldo = async (mode) => {
+  if (!ADMIN_VIEWED_USER) return alert('Cari user dulu.');
+  const amount = document.getElementById('adminUserAmount').value;
+  if (!amount || parseInt(amount) <= 0) return alert('Masukkan nominal yang valid.');
+  try {
+    const data = await postJSON(`/api/admin/user/${ADMIN_VIEWED_USER}/balance`, { amount, mode });
+    document.getElementById('adminUserBalance').textContent = formatRp(data.balance);
+    document.getElementById('adminUserAmount').value = '';
+  } catch (e) {
+    alert(e.message);
+  }
+};
+document.getElementById('btnAddSaldo').addEventListener('click', () => adjustSaldo('add'));
+document.getElementById('btnSubSaldo').addEventListener('click', () => adjustSaldo('subtract'));
+
+document.querySelectorAll('.tier-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (!ADMIN_VIEWED_USER) return alert('Cari user dulu.');
+    try {
+      await postJSON(`/api/admin/user/${ADMIN_VIEWED_USER}/tier`, { tier: btn.dataset.tier });
+      document.getElementById('adminUserTier').textContent = btn.dataset.tier;
+      document.querySelectorAll('.tier-btn').forEach(b => b.classList.toggle('active', b === btn));
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+});
 
 const loadAdminStore = async () => {
   const store = await API('/api/admin/store');
