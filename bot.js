@@ -2219,7 +2219,7 @@ app.get('/', (req, res) => res.send('Bot is running.'));
 // ====== MINI APP: static files + API (dipakai oleh /miniapp) ======
 // ====================================================================
 app.use('/app', express.static(path.join(__dirname, 'miniapp')));
-app.use('/api', express.json());
+app.use('/api', express.json({ limit: '8mb' }));
 
 // Verifikasi initData Telegram WebApp (algoritma resmi Telegram)
 const verifyInitData = (initData) => {
@@ -2278,12 +2278,31 @@ const findPendingTransaction = (userId, cb) => {
   });
 };
 
+// Foto produk yang di-upload lewat bot Telegram disimpan sebagai file_id (bukan URL),
+// jadi gak bisa langsung dipasang di <img src>. Endpoint ini nge-resolve file_id itu ke
+// URL asli dari server Telegram. Foto yang diupload lewat web (data: URL) atau URL biasa
+// gak lewat sini karena udah langsung bisa dipakai di <img>.
+app.get('/api/tgphoto/:fileId', async (req, res) => {
+  try {
+    const link = await bot.telegram.getFileLink(req.params.fileId);
+    res.redirect(String(link));
+  } catch (e) {
+    res.status(404).send('Foto tidak ditemukan.');
+  }
+});
+
+const resolvePhotoUrl = (photo) => {
+  if (!photo) return '';
+  if (photo.startsWith('data:') || photo.startsWith('http://') || photo.startsWith('https://')) return photo;
+  return `/api/tgphoto/${encodeURIComponent(photo)}`;
+};
+
 app.get('/api/store', (req, res) => {
   db.get(`SELECT name, desc, photo FROM store WHERE id = 1`, (err, row) => {
     res.json({
       name: (DEFAULT_STORE_NAME && DEFAULT_STORE_NAME.trim() !== '') ? DEFAULT_STORE_NAME : (row && row.name ? row.name : ''),
       desc: (DEFAULT_STORE_DESC && DEFAULT_STORE_DESC.trim() !== '') ? DEFAULT_STORE_DESC : (row && row.desc ? row.desc : ''),
-      photo: (DEFAULT_HEADER_PHOTO && DEFAULT_HEADER_PHOTO.trim() !== '') ? DEFAULT_HEADER_PHOTO : (row && row.photo ? row.photo : ''),
+      photo: resolvePhotoUrl((DEFAULT_HEADER_PHOTO && DEFAULT_HEADER_PHOTO.trim() !== '') ? DEFAULT_HEADER_PHOTO : (row && row.photo ? row.photo : '')),
       bot_username: BOT_USERNAME
     });
   });
@@ -2295,13 +2314,16 @@ app.get('/api/me', requireTelegramAuth, (req, res) => {
   db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err, row) => {
     const isAdmin = Number(userId) === getAdminId();
     const tier = row ? (row.tier || 'Bronze') : 'Bronze';
-    res.json({
-      id: userId,
-      username: req.tgUser.username || '',
-      first_name: req.tgUser.first_name || 'User',
-      tier,
-      balance: (isAdmin || tier === 'Owner') ? null : (row ? row.balance || 0 : 0),
-      isAdmin
+    db.get(`SELECT COUNT(id) AS total FROM orders WHERE user_id = ? AND status = 'APPROVED'`, [userId], (err2, cntRow) => {
+      res.json({
+        id: userId,
+        username: req.tgUser.username || '',
+        first_name: req.tgUser.first_name || 'User',
+        tier,
+        balance: (isAdmin || tier === 'Owner') ? null : (row ? row.balance || 0 : 0),
+        transaction_count: cntRow ? (cntRow.total || 0) : 0,
+        isAdmin
+      });
     });
   });
 });
@@ -2312,18 +2334,24 @@ app.get('/api/pending', requireTelegramAuth, (req, res) => {
   findPendingTransaction(req.tgUser.id, (pending) => res.json({ pending: pending || null }));
 });
 
+const PRODUCT_SELECT = `SELECT p.*, COUNT(DISTINCT s.id) AS stock_count,
+  (SELECT COUNT(o.id) FROM orders o WHERE o.product_id = p.id AND o.status = 'APPROVED') AS sold_count,
+  (SELECT AVG(r.rating) FROM ratings r WHERE r.product_id = p.id) AS avg_rating,
+  (SELECT COUNT(r.id) FROM ratings r WHERE r.product_id = p.id) AS rating_count
+  FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE'`;
+
 app.get('/api/products', requireTelegramAuth, (req, res) => {
   const q = (req.query.q || '').toString().trim();
-  const sql = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.parent_id IS NULL ${q ? 'AND p.name LIKE ?' : ''} GROUP BY p.id ORDER BY p.id DESC`;
-  db.all(sql, q ? [`%${q}%`] : [], (err, rows) => res.json(rows || []));
+  const sql = `${PRODUCT_SELECT} WHERE p.parent_id IS NULL ${q ? 'AND p.name LIKE ?' : ''} GROUP BY p.id ORDER BY p.id DESC`;
+  db.all(sql, q ? [`%${q}%`] : [], (err, rows) => res.json((rows || []).map(r => ({ ...r, photo: resolvePhotoUrl(r.photo) }))));
 });
 
 app.get('/api/products/:id', requireTelegramAuth, (req, res) => {
   const id = req.params.id;
-  db.get(`SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.id = ? GROUP BY p.id`, [id], (err, prod) => {
+  db.get(`${PRODUCT_SELECT} WHERE p.id = ? GROUP BY p.id`, [id], (err, prod) => {
     if (!prod) return res.status(404).json({ error: 'Produk tidak ditemukan' });
-    db.all(`SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.parent_id = ? GROUP BY p.id`, [id], (err2, variants) => {
-      res.json({ ...prod, variants: variants || [] });
+    db.all(`${PRODUCT_SELECT} WHERE p.parent_id = ? GROUP BY p.id`, [id], (err2, variants) => {
+      res.json({ ...prod, photo: resolvePhotoUrl(prod.photo), variants: (variants || []).map(v => ({ ...v, photo: resolvePhotoUrl(v.photo) })) });
     });
   });
 });
@@ -2431,6 +2459,63 @@ app.post('/api/checkout/topup', requireTelegramAuth, async (req, res) => {
   });
 });
 
+// ====== CHECKOUT PAKAI SALDO (langsung dari Mini App, tanpa QRIS) ======
+app.post('/api/checkout/product-saldo', requireTelegramAuth, async (req, res) => {
+  const prodId = req.body.prodId;
+  const qty = parseInt(req.body.qty) || 1;
+  const userId = req.tgUser.id;
+
+  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
+    if (err || !prod) return res.status(404).json({ error: 'Produk tidak ditemukan.' });
+    const minQty = prod.min_qty || 1;
+    if (qty < minQty) return res.status(400).json({ error: `Minimal beli produk ini ${minQty}.` });
+
+    db.all(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT ?`, [prodId, qty], (err2, stocks) => {
+      if (err2 || !stocks || stocks.length < qty) return res.status(400).json({ error: `Stok ${prod.name} tidak cukup.` });
+
+      db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err3, row) => {
+        const tier = row ? (row.tier || 'Bronze') : 'Bronze';
+        const balance = row ? (row.balance || 0) : 0;
+        const totalCost = prod.price * qty;
+        const isUnlimited = tier === 'Owner' || userId === getAdminId();
+        if (!isUnlimited && balance < totalCost) return res.status(400).json({ error: 'Saldo kamu tidak cukup. Silakan top up dulu.' });
+
+        const username = req.tgUser.username ? `@${req.tgUser.username}` : (req.tgUser.first_name || 'Buyer');
+        const now = new Date().toISOString();
+        const stockIds = stocks.map(s => s.id);
+        const stockContents = stocks.map(s => s.content).join('\n---\n');
+
+        const finalize = () => {
+          db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
+          db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at) VALUES (?, ?, ?, ?, 'APPROVED', 0, ?, ?)`,
+            [userId, username, prodId, qty, totalCost, now], async function (dbErr) {
+              if (dbErr) return res.status(500).json({ error: 'Gagal memproses pesanan.' });
+              const orderId = this.lastID;
+              const catatanHtml = prod.note ? formatMaybeLongHtml('📝 <b>CATATAN:</b>', prod.note) : '';
+              const successText = `🎉 <b>PEMBELIAN BERHASIL (SALDO — via Web)!</b>\n\nDetail (#${orderId}):\n<pre>${escapeHtml(stockContents)}</pre>\n\n${catatanHtml}`;
+              bot.telegram.sendMessage(userId, successText, { parse_mode: 'HTML' }).catch(() => {});
+              res.json({
+                orderId,
+                productName: prod.name,
+                qty,
+                totalCost,
+                stockContents,
+                note: prod.note || '',
+                newBalance: isUnlimited ? null : (balance - totalCost)
+              });
+            });
+        };
+
+        if (!isUnlimited) {
+          db.run(`UPDATE users SET balance = balance - ? WHERE user_id = ?`, [totalCost, userId], finalize);
+        } else {
+          finalize();
+        }
+      });
+    });
+  });
+});
+
 app.get('/api/order-status/:id', requireTelegramAuth, (req, res) => {
   db.get(`SELECT id, status, user_id FROM orders WHERE id = ?`, [req.params.id], (err, row) => {
     if (!row || Number(row.user_id) !== Number(req.tgUser.id)) return res.status(404).json({ error: 'Not found' });
@@ -2478,7 +2563,7 @@ app.post('/api/ratings', requireTelegramAuth, (req, res) => {
 // ====== DASHBOARD ADMIN (di web mini app, khusus admin) ======
 app.get('/api/admin/products', requireTelegramAuth, requireAdmin, (req, res) => {
   db.all(`SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id ORDER BY (p.parent_id IS NOT NULL), p.id DESC`, (err, rows) => {
-    res.json(rows || []);
+    res.json((rows || []).map(r => ({ ...r, photo: resolvePhotoUrl(r.photo) })));
   });
 });
 
@@ -2489,6 +2574,7 @@ app.post('/api/admin/products/:id', requireTelegramAuth, requireAdmin, (req, res
   if (req.body.price !== undefined) { fields.push('price = ?'); values.push(parseInt(req.body.price) || 0); }
   if (req.body.min_qty !== undefined) { fields.push('min_qty = ?'); values.push(Math.max(1, parseInt(req.body.min_qty) || 1)); }
   if (req.body.note !== undefined) { fields.push('note = ?'); values.push(String(req.body.note).slice(0, 500)); }
+  if (req.body.photo !== undefined) { fields.push('photo = ?'); values.push(String(req.body.photo).slice(0, 4000000)); }
   if (fields.length === 0) return res.status(400).json({ error: 'Tidak ada perubahan.' });
   values.push(id);
   db.run(`UPDATE products SET ${fields.join(', ')} WHERE id = ?`, values, function (err) {
@@ -2518,6 +2604,54 @@ app.delete('/api/admin/ratings/:id', requireTelegramAuth, requireAdmin, (req, re
   db.run(`DELETE FROM ratings WHERE id = ?`, [req.params.id], (err) => {
     if (err) return res.status(500).json({ error: 'Gagal menghapus.' });
     res.json({ ok: true });
+  });
+});
+
+// ====== ADMIN: KELOLA SALDO & TIER USER (sinkron sama fitur di bot Telegram) ======
+const VALID_TIERS = ['Bronze', 'Silver', 'Gold', 'Owner'];
+
+app.get('/api/admin/user/:id', requireTelegramAuth, requireAdmin, (req, res) => {
+  const targetId = req.params.id;
+  db.get(`SELECT user_id, balance, tier FROM users WHERE user_id = ?`, [targetId], (err, row) => {
+    if (!row) return res.json({ user_id: Number(targetId), balance: 0, tier: 'Bronze', found: false });
+    db.get(`SELECT COUNT(id) AS total FROM orders WHERE user_id = ? AND status = 'APPROVED'`, [targetId], (err2, cnt) => {
+      res.json({ user_id: row.user_id, balance: row.balance || 0, tier: row.tier || 'Bronze', transaction_count: cnt ? cnt.total : 0, found: true });
+    });
+  });
+});
+
+app.post('/api/admin/user/:id/balance', requireTelegramAuth, requireAdmin, (req, res) => {
+  const targetId = req.params.id;
+  const amount = parseInt(req.body.amount);
+  const mode = req.body.mode === 'subtract' ? 'subtract' : 'add';
+  if (!Number.isInteger(amount) || amount <= 0) return res.status(400).json({ error: 'Nominal tidak valid.' });
+  db.run(`INSERT OR IGNORE INTO users (user_id, upline_id, balance, tier) VALUES (?, 0, 0, 'Bronze')`, [targetId], () => {
+    const sql = mode === 'add'
+      ? `UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`
+      : `UPDATE users SET balance = MAX(0, COALESCE(balance, 0) - ?) WHERE user_id = ?`;
+    db.run(sql, [amount, targetId], (err) => {
+      if (err) return res.status(500).json({ error: 'Gagal memperbarui saldo.' });
+      db.get(`SELECT balance FROM users WHERE user_id = ?`, [targetId], (err2, row) => {
+        bot.telegram.sendMessage(targetId, mode === 'add'
+          ? `💰 *SALDO DITAMBAHKAN*\n\nSaldo kamu bertambah Rp${amount.toLocaleString('id-ID')} oleh admin.`
+          : `💰 *SALDO DIKURANGI*\n\nSaldo kamu dikurangi Rp${amount.toLocaleString('id-ID')} oleh admin.`,
+          { parse_mode: 'Markdown' }).catch(() => {});
+        res.json({ ok: true, balance: row ? row.balance : 0 });
+      });
+    });
+  });
+});
+
+app.post('/api/admin/user/:id/tier', requireTelegramAuth, requireAdmin, (req, res) => {
+  const targetId = req.params.id;
+  const tier = String(req.body.tier || '');
+  if (!VALID_TIERS.includes(tier)) return res.status(400).json({ error: 'Tier tidak valid.' });
+  db.run(`INSERT OR IGNORE INTO users (user_id, upline_id, balance, tier) VALUES (?, 0, 0, 'Bronze')`, [targetId], () => {
+    db.run(`UPDATE users SET tier = ? WHERE user_id = ?`, [tier, targetId], (err) => {
+      if (err) return res.status(500).json({ error: 'Gagal memperbarui tier.' });
+      bot.telegram.sendMessage(targetId, `🏷️ *TIER DIPERBARUI*\n\nTier Anda sekarang: *${tier}*`, { parse_mode: 'Markdown' }).catch(() => {});
+      res.json({ ok: true, tier });
+    });
   });
 });
 // ====================================================================
