@@ -4,6 +4,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
+const crypto = require('crypto');
 const { verifyAutoKuySignature, generateDynamicQRIS } = require('./autokuy');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
@@ -437,13 +438,18 @@ const deliverScriptById = async (userId, script) => {
 // MENU UTAMA (VPN DIHAPUS)
 const getMainMenu = (userId) => {
   const adminId = getAdminId();
-  const buttons = [
+  const buttons = [];
+  if (process.env.MINI_APP_URL) {
+    const webAppBtn = Markup.button.webApp ? Markup.button.webApp('🛍️ Buka Mini App Toko', process.env.MINI_APP_URL) : Markup.button.url('🛍️ Buka Mini App Toko', process.env.MINI_APP_URL);
+    buttons.push([webAppBtn]);
+  }
+  buttons.push(
     [Markup.button.callback('🛒 Katalog Produk', 'user_catalog'), Markup.button.callback('🔍 Cari Produk', 'user_search_prod')],
     [Markup.button.callback('💳 Saldo & Top Up', 'user_balance_menu'), Markup.button.callback('📦 Cek Pesanan', 'user_my_orders')],
     [Markup.button.callback('📊 Cek Stok Live', 'user_live_stock'), Markup.button.callback('🔗 Program Referral', 'user_referral')],
     [Markup.button.callback('📞 Customer Service', 'user_contact'), Markup.button.callback('🆔 Cek ID', 'user_check_id')],
     [Markup.button.callback('🤖 Beli Script Bot', 'user_script_menu'), Markup.button.callback('📖 Cara Belanja', 'user_faq')]
-  ];
+  );
   if (Number(userId) === adminId && adminId !== 0) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
   }
@@ -699,7 +705,23 @@ bot.start(async (ctx) => {
       return sendCustomizeButtonsMenu(ctx, groupId);
     }
   }
-  saveUserAndVisitor(ctx);
+  // Payload dari Mini App: lanjutin pembelian/top-up langsung di chat bot
+  if (payload.startsWith('buy_')) {
+    saveUserAndVisitor(ctx);
+    return renderQtySelector(ctx, payload.replace('buy_', ''), 1, false);
+  }
+  if (payload.startsWith('topup_')) {
+    saveUserAndVisitor(ctx);
+    return processTopUp(ctx, parseInt(payload.replace('topup_', '')));
+  }
+  if (payload === 'cs') {
+    saveUserAndVisitor(ctx);
+    userState[ctx.from.id] = { step: 'CS_CHAT' };
+    return ctx.reply('📞 *CUSTOMER SERVICE*\n\nSilakan ketik pesan atau keluhan Anda di chat ini.\nAdmin akan membalas pesan Anda secara langsung melalui bot ini.', { parse_mode: 'Markdown' });
+  }
+  // Payload referral: /start=<userId_upline>
+  const uplineId = payload && /^\d+$/.test(payload) ? Number(payload) : 0;
+  saveUserAndVisitor(ctx, uplineId);
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
       const storeName = (DEFAULT_STORE_NAME && DEFAULT_STORE_NAME.trim() !== '') ? DEFAULT_STORE_NAME : (store && store.name ? store.name : '');
@@ -2189,8 +2211,113 @@ app.post('/webhook/autokuy', express.raw({ type: '*/*' }), async (req, res) => {
 });
 
 app.get('/', (req, res) => res.send('Bot is running.'));
+
+// ====================================================================
+// ====== MINI APP: static files + API (dipakai oleh /miniapp) ======
+// ====================================================================
+app.use('/app', express.static(path.join(__dirname, 'miniapp')));
+app.use('/api', express.json());
+
+// Verifikasi initData Telegram WebApp (algoritma resmi Telegram)
+const verifyInitData = (initData) => {
+  try {
+    const params = new URLSearchParams(initData);
+    const hash = params.get('hash');
+    if (!hash) return null;
+    params.delete('hash');
+    const pairs = [];
+    for (const [k, v] of params.entries()) pairs.push(`${k}=${v}`);
+    pairs.sort();
+    const dataCheckString = pairs.join('\n');
+    const secretKey = crypto.createHmac('sha256', 'WebAppData').update(process.env.BOT_TOKEN).digest();
+    const computedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+    if (computedHash !== hash) return null;
+    const userRaw = params.get('user');
+    if (!userRaw) return null;
+    return JSON.parse(userRaw);
+  } catch (e) { return null; }
+};
+const requireTelegramAuth = (req, res, next) => {
+  const initData = req.headers['x-init-data'] || '';
+  const user = verifyInitData(initData);
+  if (!user || !user.id) return res.status(401).json({ error: 'Unauthorized' });
+  req.tgUser = user;
+  next();
+};
+
+app.get('/api/store', (req, res) => {
+  db.get(`SELECT name, desc, photo FROM store WHERE id = 1`, (err, row) => {
+    res.json({
+      name: (DEFAULT_STORE_NAME && DEFAULT_STORE_NAME.trim() !== '') ? DEFAULT_STORE_NAME : (row && row.name ? row.name : ''),
+      desc: (DEFAULT_STORE_DESC && DEFAULT_STORE_DESC.trim() !== '') ? DEFAULT_STORE_DESC : (row && row.desc ? row.desc : ''),
+      photo: (DEFAULT_HEADER_PHOTO && DEFAULT_HEADER_PHOTO.trim() !== '') ? DEFAULT_HEADER_PHOTO : (row && row.photo ? row.photo : ''),
+      bot_username: BOT_USERNAME
+    });
+  });
+});
+
+app.get('/api/me', requireTelegramAuth, (req, res) => {
+  const userId = req.tgUser.id;
+  saveUserAndVisitor({ from: req.tgUser });
+  db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err, row) => {
+    const isAdmin = Number(userId) === getAdminId();
+    const tier = row ? (row.tier || 'Bronze') : 'Bronze';
+    res.json({
+      id: userId,
+      username: req.tgUser.username || '',
+      first_name: req.tgUser.first_name || 'User',
+      tier,
+      balance: (isAdmin || tier === 'Owner') ? null : (row ? row.balance || 0 : 0),
+      isAdmin
+    });
+  });
+});
+
+app.get('/api/products', requireTelegramAuth, (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  const sql = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.parent_id IS NULL ${q ? 'AND p.name LIKE ?' : ''} GROUP BY p.id ORDER BY p.id DESC`;
+  db.all(sql, q ? [`%${q}%`] : [], (err, rows) => res.json(rows || []));
+});
+
+app.get('/api/products/:id', requireTelegramAuth, (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.id = ? GROUP BY p.id`, [id], (err, prod) => {
+    if (!prod) return res.status(404).json({ error: 'Produk tidak ditemukan' });
+    db.all(`SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.parent_id = ? GROUP BY p.id`, [id], (err2, variants) => {
+      res.json({ ...prod, variants: variants || [] });
+    });
+  });
+});
+
+app.get('/api/orders', requireTelegramAuth, (req, res) => {
+  const userId = req.tgUser.id;
+  db.all(`SELECT o.*, p.name AS product_name FROM orders o LEFT JOIN products p ON o.product_id = p.id WHERE o.user_id = ? ORDER BY o.id DESC LIMIT 30`, [userId], (err, rows) => {
+    res.json(rows || []);
+  });
+});
+
+app.get('/api/referral', requireTelegramAuth, (req, res) => {
+  const userId = req.tgUser.id;
+  db.get(`SELECT COUNT(user_id) AS total FROM users WHERE upline_id = ?`, [userId], (err, row) => {
+    res.json({ link: `https://t.me/${BOT_USERNAME}?start=${userId}`, total_referred: row ? row.total : 0 });
+  });
+});
+
+app.get('/api/stock-live', requireTelegramAuth, (req, res) => {
+  db.all(`SELECT p.name, p.price, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`, (err, rows) => {
+    res.json(rows || []);
+  });
+});
+// ====================================================================
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 Webhook server listening on port ${PORT}`));
-bot.launch().then(setupCommandMenu);
+bot.launch().then(() => {
+  setupCommandMenu();
+  // Set tombol menu "🛍️ Buka Toko" di pojok kiri kolom chat (butuh env MINI_APP_URL, contoh: https://domainkamu.com/app)
+  if (process.env.MINI_APP_URL) {
+    bot.telegram.setChatMenuButton({ menu_button: { type: 'web_app', text: '🛍️ Buka Toko', web_app: { url: process.env.MINI_APP_URL } } }).catch((e) => console.log('Gagal set menu button:', e.message));
+  }
+});
 console.log('Bot Telegram Running Full Edition...');
 
