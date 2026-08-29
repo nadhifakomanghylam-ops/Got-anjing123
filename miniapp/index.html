@@ -37,6 +37,7 @@
       <div>
         <div class="balance-label">// SALDO_KAMU</div>
         <div class="balance-amount" id="balanceAmount">Rp0</div>
+        <div class="tx-count" id="txCount">0 transaksi</div>
       </div>
       <div class="tier-badge" id="tierBadge">Bronze</div>
     </section>
@@ -62,12 +63,31 @@
         <div class="search-bar">
           <input type="text" id="searchInput" placeholder="&gt; cari_produk..." />
         </div>
-        <div id="productList" class="product-list"></div>
+        <div class="sort-bar">
+          <span class="sort-label">Urutkan:</span>
+          <select id="sortSelect" class="sort-select">
+            <option value="terbaru">Terbaru</option>
+            <option value="termurah">Termurah</option>
+            <option value="termahal">Termahal</option>
+            <option value="terlaris">Terlaris</option>
+          </select>
+        </div>
+        <div id="productList" class="product-grid"></div>
       </section>
 
       <!-- PRODUCT DETAIL -->
       <section class="view hidden" id="view-detail">
         <div id="productDetail" class="product-detail"></div>
+      </section>
+
+      <!-- SALDO PURCHASE SUCCESS -->
+      <section class="view hidden" id="view-saldo-success">
+        <div class="qris-box">
+          <div class="back-link" id="backFromSaldoSuccess">← Kembali</div>
+          <div class="saldo-success-icon">🎉</div>
+          <div class="qris-title" id="saldoSuccessTitle">Pembelian Berhasil</div>
+          <div class="saldo-success-detail" id="saldoSuccessDetail"></div>
+        </div>
       </section>
 
       <!-- PESANAN -->
@@ -114,6 +134,7 @@
           <div class="back-link" id="backFromQris">← Batal</div>
           <div class="qris-title" id="qrisTitle">Pesanan</div>
           <img id="qrisImage" class="qris-image" src="" alt="QRIS" />
+          <a id="btnDownloadQris" class="btn-download-qris" download="qris-pembayaran.png">⬇️ Unduh QRIS</a>
           <div class="qris-amount" id="qrisAmount">Rp0</div>
           <div class="qris-timer" id="qrisTimer">--:--</div>
           <div class="qris-status" id="qrisStatus">⏳ Menunggu pembayaran...</div>
@@ -157,6 +178,7 @@
     <div class="drawer-tabs">
       <button class="drawer-tab active" data-tab="produk">Produk</button>
       <button class="drawer-tab" data-tab="toko">Toko</button>
+      <button class="drawer-tab" data-tab="user">User</button>
       <button class="drawer-tab" data-tab="testimoni">Testimoni</button>
     </div>
     <div class="drawer-body">
@@ -169,6 +191,29 @@
         <label class="admin-label">Deskripsi Toko</label>
         <textarea id="adminStoreDesc" class="admin-input admin-textarea"></textarea>
         <button class="btn-primary" id="btnSaveStore">💾 Simpan</button>
+      </div>
+      <div class="drawer-pane hidden" id="pane-user">
+        <label class="admin-label">ID Telegram User</label>
+        <input type="text" id="adminUserId" class="admin-input" placeholder="cth: 123456789" inputmode="numeric" />
+        <button class="btn-primary" id="btnLoadUser">🔍 Cari User</button>
+        <div id="adminUserResult" class="admin-user-result hidden">
+          <div class="admin-user-row">💳 Saldo: <b id="adminUserBalance">Rp0</b></div>
+          <div class="admin-user-row">🏷️ Tier: <b id="adminUserTier">Bronze</b></div>
+          <div class="admin-user-row">📦 Transaksi: <b id="adminUserTx">0</b></div>
+          <label class="admin-label">Nominal Saldo</label>
+          <input type="number" id="adminUserAmount" class="admin-input" placeholder="cth: 10000" />
+          <div class="admin-btn-row">
+            <button class="btn-secondary" id="btnAddSaldo">➕ Tambah</button>
+            <button class="btn-secondary" id="btnSubSaldo">➖ Kurangi</button>
+          </div>
+          <label class="admin-label">Ubah Tier</label>
+          <div class="admin-tier-row">
+            <button class="tier-btn" data-tier="Bronze">🥉 Bronze</button>
+            <button class="tier-btn" data-tier="Silver">🥈 Silver</button>
+            <button class="tier-btn" data-tier="Gold">🥇 Gold</button>
+            <button class="tier-btn" data-tier="Owner">👑 Owner</button>
+          </div>
+        </div>
       </div>
       <div class="drawer-pane hidden" id="pane-testimoni">
         <div id="adminRatingList" class="admin-list"></div>
