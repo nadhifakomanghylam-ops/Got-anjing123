@@ -10,6 +10,7 @@ let ME = null;
 const formatRp = (n) => `Rp${Number(n || 0).toLocaleString('id-ID')}`;
 
 const showView = (name) => {
+  stopQrisPolling();
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   const el = document.getElementById(`view-${name}`);
   if (el) el.classList.remove('hidden');
@@ -123,14 +124,30 @@ const openProduct = async (id) => {
 
   document.getElementById('backToKatalog').addEventListener('click', () => showView('katalog'));
   const buyBtn = document.getElementById('btnBuy');
-  if (buyBtn) buyBtn.addEventListener('click', () => goBuy(p.id));
+  if (buyBtn) buyBtn.addEventListener('click', () => goBuy(p.id, p.min_qty));
   detail.querySelectorAll('.variant-item').forEach(v => v.addEventListener('click', () => openProduct(v.dataset.id)));
 };
 
-const goBuy = (id) => {
-  if (!tg || !BOT_USERNAME) return alert('Buka mini app ini dari dalam Telegram ya.');
-  tg.openTelegramLink(`https://t.me/${BOT_USERNAME}?start=buy_${id}`);
-  tg.close();
+const postJSON = (path, body) => fetch(path, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-Init-Data': initData },
+  body: JSON.stringify(body)
+}).then(async (r) => {
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Gagal memproses.');
+  return data;
+});
+
+const goBuy = async (id, minQty) => {
+  const btn = document.getElementById('btnBuy');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Membuat QRIS...'; }
+  try {
+    const data = await postJSON('/api/checkout/product', { prodId: id, qty: Math.max(1, minQty || 1) });
+    showQrisView('order', data);
+  } catch (e) {
+    alert(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '🛒 Beli Sekarang'; }
+  }
 };
 
 // ====== PESANAN ======
@@ -152,10 +169,20 @@ const loadOrders = async () => {
 
 // ====== SALDO / TOPUP ======
 document.querySelectorAll('.topup-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (!tg || !BOT_USERNAME) return alert('Buka mini app ini dari dalam Telegram ya.');
-    tg.openTelegramLink(`https://t.me/${BOT_USERNAME}?start=topup_${btn.dataset.amt}`);
-    tg.close();
+  btn.addEventListener('click', async () => {
+    const amt = parseInt(btn.dataset.amt);
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = '⏳ Membuat QRIS...';
+    try {
+      const data = await postJSON('/api/checkout/topup', { amount: amt });
+      showQrisView('topup', data);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = original;
+    }
   });
 });
 
@@ -179,6 +206,68 @@ document.getElementById('btnCS').addEventListener('click', () => {
   tg.openTelegramLink(`https://t.me/${BOT_USERNAME}?start=cs`);
   tg.close();
 });
+
+// ====== QRIS PAYMENT SCREEN ======
+let qrisPollTimer = null;
+let qrisCountdownTimer = null;
+
+const stopQrisPolling = () => {
+  if (qrisPollTimer) { clearInterval(qrisPollTimer); qrisPollTimer = null; }
+  if (qrisCountdownTimer) { clearInterval(qrisCountdownTimer); qrisCountdownTimer = null; }
+};
+
+const showQrisView = (type, data) => {
+  showView('qris');
+  document.getElementById('qrisTitle').textContent = type === 'topup' ? '💳 Top Up Saldo' : `🧾 Pesanan #${data.orderId} — ${data.productName}`;
+  document.getElementById('qrisImage').src = data.qrisImage;
+  document.getElementById('qrisAmount').textContent = formatRp(data.totalAmount);
+  const statusEl = document.getElementById('qrisStatus');
+  const timerEl = document.getElementById('qrisTimer');
+  statusEl.className = 'qris-status';
+  statusEl.textContent = '⏳ Menunggu pembayaran...';
+
+  const id = type === 'topup' ? data.topupId : data.orderId;
+  const statusPath = type === 'topup' ? `/api/topup-status/${id}` : `/api/order-status/${id}`;
+  const expiresAt = new Date(data.expiresAt).getTime();
+
+  const tick = () => {
+    const diff = expiresAt - Date.now();
+    if (diff <= 0) {
+      timerEl.textContent = '00:00';
+      timerEl.classList.add('warn');
+      statusEl.className = 'qris-status failed';
+      statusEl.textContent = '⌛ QRIS kadaluarsa. Buat pesanan baru ya.';
+      stopQrisPolling();
+      return;
+    }
+    const m = Math.floor(diff / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    timerEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    if (diff < 60000) timerEl.classList.add('warn');
+  };
+  tick();
+  qrisCountdownTimer = setInterval(tick, 1000);
+
+  const poll = async () => {
+    try {
+      const res = await API(statusPath);
+      if (res.status === 'APPROVED') {
+        statusEl.className = 'qris-status success';
+        statusEl.textContent = type === 'topup' ? '🎉 Top up berhasil! Saldo sudah ditambahkan.' : '🎉 Pembayaran dikonfirmasi! Detail dikirim ke chat bot.';
+        stopQrisPolling();
+        loadMe();
+      } else if (res.status === 'REJECTED' || res.status === 'EXPIRED') {
+        statusEl.className = 'qris-status failed';
+        statusEl.textContent = res.status === 'EXPIRED' ? '⌛ QRIS kadaluarsa.' : '❌ Pembayaran ditolak.';
+        stopQrisPolling();
+      }
+    } catch (e) { /* diamkan, coba lagi di polling berikutnya */ }
+  };
+  qrisPollTimer = setInterval(poll, 4000);
+  poll();
+};
+
+document.getElementById('backFromQris').addEventListener('click', () => showView('home'));
 
 // ====== INIT ======
 (async () => {
