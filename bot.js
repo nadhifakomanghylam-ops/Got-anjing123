@@ -63,16 +63,15 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS vpn_subscriptions ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, server_name TEXT, expired_at TEXT, status TEXT DEFAULT 'ACTIVE' )`);
   db.run(`CREATE TABLE IF NOT EXISTS bot_scripts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, zip_file_id TEXT, video_file_id TEXT, instruction_text TEXT, stock INTEGER DEFAULT 0)`);
   db.run(`CREATE TABLE IF NOT EXISTS script_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, script_id INTEGER, amount INTEGER, status TEXT DEFAULT 'PENDING', proof TEXT, casaku_transaction_id TEXT, qris_expires_at TEXT, created_at TEXT)`);
-
-  // === TABEL BARU 9 FITUR ===
-  db.run(`CREATE TABLE IF NOT EXISTS withdrawals ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, amount INTEGER, method TEXT, account_number TEXT, status TEXT DEFAULT 'PENDING', created_at TEXT )`);
   db.run(`CREATE TABLE IF NOT EXISTS lucky_spins ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, prize TEXT, amount_won INTEGER, created_at TEXT )`);
   db.run(`CREATE TABLE IF NOT EXISTS product_requests ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, product_name TEXT, description TEXT, status TEXT DEFAULT 'PENDING', created_at TEXT )`);
   db.run(`CREATE TABLE IF NOT EXISTS admin_logs ( id INTEGER PRIMARY KEY AUTOINCREMENT, admin_id INTEGER, admin_name TEXT, action TEXT, details TEXT, created_at TEXT )`);
+  // Tabel withdrawals tetap ada di DB biar ga error, tapi fitur UI & routing dihapus
+  db.run(`CREATE TABLE IF NOT EXISTS withdrawals ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, amount INTEGER, method TEXT, account_number TEXT, status TEXT DEFAULT 'PENDING', created_at TEXT )`);
 
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
-      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, '🛍️ TOKO DIGITAL PREMIUM', 'Selamat datang di toko kami!', '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! ', 'Sampai jumpa {user} ')`);
+      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, '🛍️ TOKO DIGITAL PREMIUM', 'Selamat datang di toko kami!', '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! 🎉', 'Sampai jumpa {user} 👋')`);
     }
   });
 });
@@ -171,7 +170,7 @@ const getUserInfoLine = (ctx, cb) => {
 const deliverScript = async (ctx, script) => {
   try {
     if (script.instruction_text) await ctx.replyWithMarkdown(`📝 *INSTRUKSI PEMBELIAN SCRIPT*\n\n${script.instruction_text}`);
-    if (script.video_file_id) await ctx.replyWithVideo(script.video_file_id, { caption: '🎥 Video Tutorial Script Bot' });
+    if (script.video_file_id) await ctx.replyWithVideo(script.video_file_id, { caption: ' Video Tutorial Script Bot' });
     if (script.zip_file_id) await ctx.replyWithDocument(script.zip_file_id, { caption: '📂 File Source Code (ZIP)' });
     await ctx.reply('✅ Terima kasih! Script telah dikirim.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
   } catch (e) {
@@ -181,18 +180,18 @@ const deliverScript = async (ctx, script) => {
 
 const deliverScriptById = async (userId, script) => {
   try {
-    if (script.instruction_text) await bot.telegram.sendMessage(userId, `📝 *INSTRUKSI PEMBELIAN SCRIPT*\n\n${script.instruction_text}`, { parse_mode: 'Markdown' });
+    if (script.instruction_text) await bot.telegram.sendMessage(userId, ` *INSTRUKSI PEMBELIAN SCRIPT*\n\n${script.instruction_text}`, { parse_mode: 'Markdown' });
     if (script.video_file_id) await bot.telegram.sendVideo(userId, script.video_file_id, { caption: '🎥 Video Tutorial Script Bot' });
     if (script.zip_file_id) await bot.telegram.sendDocument(userId, script.zip_file_id, { caption: '📂 File Source Code (ZIP)' });
   } catch (e) { console.error('Gagal deliver script:', e.message); }
 };
 
-// === MENU 2 HALAMAN (REORGANISASI) ===
+// === MENU UTAMA (TOMBOL WITHDRAW DIHAPUS) ===
 const getMainMenu = (userId) => {
   const buttons = [
     [Markup.button.callback('🛒 Katalog Produk', 'user_catalog'), Markup.button.callback('🔍 Cari Produk', 'user_search_prod')],
     [Markup.button.callback('💳 Saldo & Top Up', 'user_balance_menu'), Markup.button.callback('📦 Cek Pesanan', 'user_my_orders')],
-    [Markup.button.callback(' Customer Service', 'user_contact'), Markup.button.callback('📖 Cara Belanja', 'user_faq')],
+    [Markup.button.callback('📞 Customer Service', 'user_contact'), Markup.button.callback('📖 Cara Belanja', 'user_faq')],
     [Markup.button.callback('🤖 Beli Script Bot', 'user_script_menu'), Markup.button.callback('🎵 Lagu', 'user_lagu')],
     [Markup.button.callback('📂 Menu Lainnya ⬇️', 'main_menu_page2')]
   ];
@@ -205,11 +204,10 @@ const getMainMenu = (userId) => {
 const getMainMenuPage2 = (userId) => {
   const buttons = [
     [Markup.button.callback('🌐 Layanan VPN', 'user_vpn_menu'), Markup.button.callback('📊 Cek Stok Live', 'user_live_stock')],
-    [Markup.button.callback('🔗 Program Referral', 'user_referral'), Markup.button.callback('🆔 Cek ID', 'user_check_id')],
-    [Markup.button.callback('📝 Request Produk', 'user_request_product'), Markup.button.callback('💸 Tarik Saldo', 'user_withdraw')],
-    [Markup.button.callback(' Lucky Spin', 'user_lucky_spin'), Markup.button.callback('📅 Absen Harian', 'user_daily_checkin')],
-    [Markup.button.callback('🏆 Leaderboard', 'user_leaderboard')],
-    [Markup.button.callback('🔙 Menu Utama ⬆️', 'main_menu')]
+    [Markup.button.callback('🔗 Program Referral', 'user_referral'), Markup.button.callback(' Cek ID', 'user_check_id')],
+    [Markup.button.callback('📝 Request Produk', 'user_request_product'), Markup.button.callback('🎰 Lucky Spin', 'user_lucky_spin')],
+    [Markup.button.callback('📅 Absen Harian', 'user_daily_checkin'), Markup.button.callback(' Leaderboard', 'user_leaderboard')],
+    [Markup.button.callback('🔙 Menu Utama ️', 'main_menu')]
   ];
   if (isAdmin(userId)) {
     buttons.push([Markup.button.callback('⚙️ Dashboard Admin', 'admin_dashboard')]);
@@ -217,23 +215,23 @@ const getMainMenuPage2 = (userId) => {
   return Markup.inlineKeyboard(buttons);
 };
 
+// === MENU ADMIN (TOMBOL WITHDRAW DIHAPUS) ===
 const getAdminMenu = () => {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('📊 Statistik', 'admin_stats'), Markup.button.callback('💾 Backup DB', 'admin_backup')],
+    [Markup.button.callback(' Statistik', 'admin_stats'), Markup.button.callback(' Backup DB', 'admin_backup')],
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
-    [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('️ Edit Info Toko', 'admin_edit_store')],
+    [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
     [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🧾 Set Foto QRIS', 'admin_set_qris_photo')],
     [Markup.button.callback('👋 Set Welcome Msg', 'admin_set_welcome'), Markup.button.callback('👋 Set Leave Msg', 'admin_set_leave')],
     [Markup.button.callback('🎵 Set Lagu', 'admin_set_song'), Markup.button.callback('🤖 Atur Auto-Reply', 'admin_autoreply_type')],
     [Markup.button.callback('🗑️ Hapus Auto-Reply', 'admin_del_autoreply'), Markup.button.callback('👤 Set Admin Uname', 'admin_set_uname')],
-    [Markup.button.callback(' Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('👥 Wajib Join Grup', 'admin_set_req_group')],
+    [Markup.button.callback('🔒 Wajib Join Channel', 'admin_set_channel'), Markup.button.callback('👥 Wajib Join Grup', 'admin_set_req_group')],
     [Markup.button.callback('📢 Grup Log/Testi', 'admin_set_log_group')],
     [Markup.button.callback(' Buat Voucher', 'admin_add_voucher'), Markup.button.callback('🗑️ Hapus Voucher', 'admin_del_voucher')],
     [Markup.button.callback('👤 Kelola Saldo/Tier User', 'admin_manage_user')],
     [Markup.button.callback('📢 Broadcast Chat', 'admin_broadcast_menu'), Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button')],
     [Markup.button.callback('📦 Jual Script Bot', 'admin_script_menu')],
-    [Markup.button.callback('💸 Kelola Withdraw', 'admin_withdraw_menu')],
-    [Markup.button.callback('📝 Request Produk', 'admin_request_menu')],
+    [Markup.button.callback(' Request Produk', 'admin_request_menu')],
     [Markup.button.callback('📜 Log Aktivitas Admin', 'admin_logs')],
     [Markup.button.callback('📊 Laporan Keuangan', 'admin_financial_report')],
     [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
@@ -254,7 +252,7 @@ const getStartMenu = (store) => {
   const chUrl = buildJoinUrl(store && store.required_channel);
   const grUrl = buildJoinUrl(store && store.required_group);
   if (chUrl) rows.push(Markup.button.url('📢 Channel', chUrl));
-  if (grUrl) rows.push(Markup.button.url(' Grup', grUrl));
+  if (grUrl) rows.push(Markup.button.url('👥 Grup', grUrl));
   const buttons = [];
   if (rows.length) buttons.push(rows);
   buttons.push([Markup.button.callback('🏠 Main Menu', 'main_menu')]);
@@ -265,7 +263,7 @@ bot.start(async (ctx) => {
   saveUserAndVisitor(ctx);
   db.get(`SELECT * FROM store WHERE id = 1`, (err, store) => {
     getUserInfoLine(ctx, (infoLine) => {
-      const text = `🏬 *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
+      const text = ` *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
       if (store && store.photo) ctx.replyWithPhoto(store.photo, { caption: text, parse_mode: 'Markdown', ...getStartMenu(store) });
       else ctx.replyWithMarkdown(text, getStartMenu(store));
     });
@@ -275,7 +273,7 @@ bot.start(async (ctx) => {
 bot.action('main_menu', async (ctx) => {
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
-      const text = `🏬 *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
+      const text = ` *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
       if (store && store.photo) await safeClearAndSend(ctx, text, { photo: store.photo, ...getMainMenu(ctx.from.id) });
       else await safeClearAndSend(ctx, text, getMainMenu(ctx.from.id));
     });
@@ -286,7 +284,7 @@ bot.action('main_menu_page2', async (ctx) => {
   ctx.answerCbQuery();
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
-      const text = `🏬 *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━\n\n📂 *MENU LAINNYA*`;
+      const text = ` *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━\n\n *MENU LAINNYA*`;
       if (store && store.photo) await safeClearAndSend(ctx, text, { photo: store.photo, ...getMainMenuPage2(ctx.from.id) });
       else await safeClearAndSend(ctx, text, getMainMenuPage2(ctx.from.id));
     });
@@ -300,15 +298,15 @@ bot.action('user_daily_checkin', async (ctx) => {
   const today = new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta' });
   db.get(`SELECT last_checkin FROM users WHERE user_id = ?`, [userId], (err, row) => {
     if (row && row.last_checkin === today) {
-      return safeClearAndSend(ctx, `📅 *ABSEN HARIAN*\n\nAnda sudah absen hari ini!\nKembali lagi besok untuk bonus saldo.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+      return safeClearAndSend(ctx, `📅 *ABSEN HARIAN*\n\nAnda sudah absen hari ini!\nKembali lagi besok untuk bonus saldo.`, Markup.inlineKeyboard([[Markup.button.callback(' Menu Utama', 'main_menu')]]));
     }
     const bonus = Math.floor(Math.random() * 500) + 100;
     db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ?, last_checkin = ? WHERE user_id = ?`, [bonus, today, userId]);
-    safeClearAndSend(ctx, `🎉 *ABSEN BERHASIL!*\n\nAnda mendapatkan bonus saldo *Rp${bonus.toLocaleString('id-ID')}*!\nKembali lagi besok ya!`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+    safeClearAndSend(ctx, ` *ABSEN BERHASIL!*\n\nAnda mendapatkan bonus saldo *Rp${bonus.toLocaleString('id-ID')}*!\nKembali lagi besok ya!`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
   });
 });
 
-// === FITUR: LUCKY SPIN (0.00000% HADIAH UTAMA) ===
+// === FITUR: LUCKY SPIN ===
 bot.action('user_lucky_spin', async (ctx) => {
   ctx.answerCbQuery();
   const userId = ctx.from.id;
@@ -317,12 +315,11 @@ bot.action('user_lucky_spin', async (ctx) => {
     const tier = row ? row.tier : 'Bronze';
     const balance = row ? row.balance : 0;
     if (tier !== 'Owner' && !isAdmin(userId) && balance < spinCost) {
-      return safeClearAndSend(ctx, `🎰 *LUCKY SPIN*\n\n⚠️ Saldo tidak cukup!\nBiaya spin: Rp${spinCost.toLocaleString('id-ID')}\nSaldo Anda: Rp${balance.toLocaleString('id-ID')}`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+      return safeClearAndSend(ctx, ` *LUCKY SPIN*\n\n️ Saldo tidak cukup!\nBiaya spin: Rp${spinCost.toLocaleString('id-ID')}\nSaldo Anda: Rp${balance.toLocaleString('id-ID')}`, Markup.inlineKeyboard([[Markup.button.callback(' Menu Utama', 'main_menu')]]));
     }
     if (tier !== 'Owner' && !isAdmin(userId)) {
       db.run(`UPDATE users SET balance = balance - ? WHERE user_id = ?`, [spinCost, userId]);
     }
-    // Hadiah utama (Rp10.000) weight = 0 (TIDAK MUNGKIN MENANG)
     const prizes = [
       { prize: '💸 Saldo Rp500', amount: 500, weight: 45 },
       { prize: '💰 Saldo Rp1.000', amount: 1000, weight: 35 },
@@ -341,7 +338,7 @@ bot.action('user_lucky_spin', async (ctx) => {
     db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [selectedPrize.amount, userId]);
     db.run(`INSERT INTO lucky_spins (user_id, prize, amount_won, created_at) VALUES (?, ?, ?, ?)`,
       [userId, selectedPrize.prize, selectedPrize.amount, new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })]);
-    safeClearAndSend(ctx, ` *LUCKY SPIN RESULT*\n\n🎊 Selamat! Anda mendapatkan:\n*${selectedPrize.prize}*\n\nSaldo telah ditambahkan!`, Markup.inlineKeyboard([[Markup.button.callback('🎰 Spin Lagi (Rp2.000)', 'user_lucky_spin')], [Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
+    safeClearAndSend(ctx, ` *LUCKY SPIN RESULT*\n\n🎊 Selamat! Anda mendapatkan:\n*${selectedPrize.prize}*\n\nSaldo telah ditambahkan!`, Markup.inlineKeyboard([[Markup.button.callback(' Spin Lagi (Rp2.000)', 'user_lucky_spin')], [Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
   });
 });
 
@@ -350,7 +347,7 @@ bot.action('user_leaderboard', async (ctx) => {
   ctx.answerCbQuery();
   db.all(`SELECT u.user_id, COUNT(d.user_id) as total_downline FROM users u LEFT JOIN users d ON u.user_id = d.upline_id WHERE d.user_id IS NOT NULL GROUP BY u.user_id ORDER BY total_downline DESC LIMIT 5`, (err, refRows) => {
     db.all(`SELECT user_id, username, SUM(amount) as total_spent FROM orders WHERE status = 'APPROVED' GROUP BY user_id ORDER BY total_spent DESC LIMIT 5`, (err, buyerRows) => {
-      let text = `🏆 *LEADERBOARD*\n\n🔗 *TOP REFERRAL:*\n`;
+      let text = `🏆 *LEADERBOARD*\n\n *TOP REFERRAL:*\n`;
       if (refRows && refRows.length > 0) refRows.forEach((r, i) => { text += `${i + 1}. \`${r.user_id}\` - ${r.total_downline} downline\n`; });
       else text += `Belum ada data\n`;
       text += `\n💰 *TOP BUYER:*\n`;
@@ -366,22 +363,6 @@ bot.action('user_request_product', async (ctx) => {
   ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'REQUEST_PRODUCT_NAME' };
   safeClearAndSend(ctx, `📝 *REQUEST PRODUK*\n\nKetik nama produk yang ingin Anda request:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'main_menu')]]));
-});
-
-// === FITUR: WITHDRAW ===
-bot.action('user_withdraw', async (ctx) => {
-  ctx.answerCbQuery();
-  const userId = ctx.from.id;
-  db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err, row) => {
-    const tier = row ? row.tier : 'Bronze';
-    const balance = row ? row.balance : 0;
-    const minWithdraw = 10000;
-    if (tier !== 'Owner' && !isAdmin(userId) && balance < minWithdraw) {
-      return safeClearAndSend(ctx, `💸 *TARIK SALDO*\n\n⚠️ Saldo tidak cukup!\nMinimal withdraw: Rp${minWithdraw.toLocaleString('id-ID')}\nSaldo Anda: Rp${balance.toLocaleString('id-ID')}`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
-    }
-    userState[userId] = { step: 'WITHDRAW_AMOUNT' };
-    safeClearAndSend(ctx, `💸 *TARIK SALDO*\n\n💰 Saldo Anda: Rp${balance.toLocaleString('id-ID')}\n💵 Minimal withdraw: Rp${minWithdraw.toLocaleString('id-ID')}\n\nMasukkan nominal yang ingin ditarik:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'main_menu')]]));
-  });
 });
 
 // === HANDLER VPN ===
@@ -457,7 +438,7 @@ bot.action(/^script_pay_saldo_(.+)$/, async (ctx) => {
         [userId, username, scriptId, script.price, now]);
       deliverScript(ctx, script);
       const adminId = getAdminId();
-      if (adminId) bot.telegram.sendMessage(adminId, `🎉 *PEMBELIAN SCRIPT SUKSES (SALDO)*\n\n Buyer: ${username} (ID: ${userId})\n📦 Script: ${script.name}\n💰 Total: Rp${script.price.toLocaleString('id-ID')}`, { parse_mode: 'Markdown' }).catch(() => {});
+      if (adminId) bot.telegram.sendMessage(adminId, `🎉 *PEMBELIAN SCRIPT SUKSES (SALDO)*\n\n👤 Buyer: ${username} (ID: ${userId})\n📦 Script: ${script.name}\n💰 Total: Rp${script.price.toLocaleString('id-ID')}`, { parse_mode: 'Markdown' }).catch(() => {});
     });
   });
 });
@@ -476,7 +457,7 @@ bot.action(/^script_pay_qris_(.+)$/, async (ctx) => {
         [userId, username, scriptId, script.price, now, qris.transactionId, qris.expiresAt], function (dbErr) {
           if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
           const orderId = this.lastID;
-          const detailText = `🧾 *PESANAN SCRIPT #${orderId}*\n\n *Script:* ${script.name}\n💰 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n Scan QRIS dinamis.`;
+          const detailText = `🧾 *PESANAN SCRIPT #${orderId}*\n\n📦 *Script:* ${script.name}\n💰 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS dinamis.`;
           safeClearAndSend(ctx, detailText, {
             photo: { source: qris.imageBuffer },
             ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]])
@@ -582,14 +563,19 @@ bot.action('user_check_id', async (ctx) => {
   ctx.answerCbQuery();
   ctx.replyWithMarkdown(`👤 *ID Telegram Anda:* \`${ctx.from.id}\``);
 });
+
+// === FITUR LAGU (DIPERBARUI) ===
 bot.action('user_lagu', async (ctx) => {
   ctx.answerCbQuery();
   db.get(`SELECT song FROM store WHERE id = 1`, async (err, store) => {
     if (!store || !store.song) return ctx.reply('⚠️ Admin belum mengatur lagu.');
-    try { await ctx.replyWithAudio(store.song, { caption: '🎵 Ini dia lagunya!' }); }
-    catch (e) { ctx.reply('⚠️ Gagal mengirim lagu.'); }
+    try { 
+      // Langsung kirim audio tanpa delay
+      await ctx.replyWithAudio(store.song, { caption: '🎵 *Auto-playing Music*\n\nLagu diputar otomatis!', parse_mode: 'Markdown' }); 
+    } catch (e) { ctx.reply('⚠️ Gagal mengirim lagu.'); }
   });
 });
+
 bot.action('user_faq', async (ctx) => {
   ctx.answerCbQuery();
   const faqText = `📖 *CARA BELANJA*\n\n1️⃣ Pilih *Katalog Produk*\n2️⃣ Pilih produk & jumlah\n3️⃣ Pilih metode bayar (*QRIS* atau *Saldo*)\n4️⃣ Jika via QRIS, scan & transfer sesuai Nominal Pas\n5️⃣ Produk dikirim otomatis!`;
@@ -615,7 +601,7 @@ const sendReferral = async (ctx) => {
     const botInfo = await ctx.telegram.getMe();
     const refLink = `https://t.me/${botInfo.username}?start=${userId}`;
     const text = `🔗 *PROGRAM REFERRAL*\n\nBagikan link:\n\`${refLink}\`\n\n👥 Total diundang: ${row ? row.total_downline : 0} orang`;
-    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback(' Kembali', 'main_menu')]]));
   });
 };
 bot.action('user_referral', async (ctx) => { ctx.answerCbQuery(); await sendReferral(ctx); });
@@ -630,10 +616,10 @@ bot.action('user_search_prod', async (ctx) => {
 const sendMyOrders = async (ctx) => {
   const userId = ctx.from.id;
   db.all(`SELECT o.*, p.name as prod_name FROM orders o JOIN products p ON o.product_id = p.id WHERE o.user_id = ? ORDER BY o.id DESC LIMIT 5`, [userId], async (err, rows) => {
-    if (!rows || rows.length === 0) return await safeClearAndSend(ctx, `📦 *RIWAYAT PESANAN*\n\nBelum pernah transaksi.`, Markup.inlineKeyboard([[Markup.button.callback(' Kembali', 'main_menu')]]));
+    if (!rows || rows.length === 0) return await safeClearAndSend(ctx, `📦 *RIWAYAT PESANAN*\n\nBelum pernah transaksi.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     let text = `📦 *5 TRANSAKSI TERAKHIR:*\n\n`;
     rows.forEach(r => { text += `• *Order #${r.id}* - ${r.prod_name} (${r.quantity || 1}x)\n Status: *${r.status}* (${r.created_at})\n\n`; });
-    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
+    await safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback(' Kembali', 'main_menu')]]));
   });
 };
 bot.action('user_my_orders', async (ctx) => { ctx.answerCbQuery(); await sendMyOrders(ctx); });
@@ -642,7 +628,7 @@ bot.command('pesanan', sendMyOrders);
 const sendContact = async (ctx) => {
   db.get(`SELECT admin_uname FROM store WHERE id = 1`, async (err, store) => {
     const uname = (store && store.admin_uname) ? store.admin_uname.replace('@', '') : '';
-    if (uname) await safeClearAndSend(ctx, `Hubungi CS:`, Markup.inlineKeyboard([[Markup.button.url('💬 Chat Admin', `https://t.me/${uname}`)], [Markup.button.callback(' Kembali', 'main_menu')]]));
+    if (uname) await safeClearAndSend(ctx, `Hubungi CS:`, Markup.inlineKeyboard([[Markup.button.url('💬 Chat Admin', `https://t.me/${uname}`)], [Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     else await safeClearAndSend(ctx, `⚠️ Admin belum mengatur Username CS.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
   });
 };
@@ -658,7 +644,7 @@ bot.action('user_balance_menu', async (ctx) => {
     const text = `💳 *MANAJEMEN SALDO*\n\n💰 *Saldo:* ${balance}\n🏷️ *Tier:* ${tier}\n\nPilih nominal Top Up:`;
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard([
       [Markup.button.callback('➕ Rp500', 'topup_amt_500'), Markup.button.callback('➕ Rp1.000', 'topup_amt_1000')],
-      [Markup.button.callback('➕ Rp5.000', 'topup_amt_5000'), Markup.button.callback('➕ Rp10.000', 'topup_amt_10000')],
+      [Markup.button.callback(' Rp5.000', 'topup_amt_5000'), Markup.button.callback('➕ Rp10.000', 'topup_amt_10000')],
       [Markup.button.callback('✍️ Nominal Custom', 'user_topup_custom')],
       [Markup.button.callback('🔙 Kembali', 'main_menu')]
     ]));
@@ -668,7 +654,7 @@ bot.action(/^topup_amt_(.+)$/, async (ctx) => { processTopUp(ctx, parseInt(ctx.m
 bot.action('user_topup_custom', async (ctx) => {
   ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'TOPUP_AMOUNT' };
-  await safeClearAndSend(ctx, ` *TOP UP CUSTOM*\n\nMasukkan nominal (500-10000000):`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]));
+  await safeClearAndSend(ctx, `💰 *TOP UP CUSTOM*\n\nMasukkan nominal (500-10000000):`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]));
 });
 
 const processTopUp = async (ctx, amount) => {
@@ -679,10 +665,10 @@ const processTopUp = async (ctx, amount) => {
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
     db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
       [ctx.from.id, username, amount, qris.uniqueCode, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (err) {
-        if (err) { console.error('Gagal menyimpan top up:', err.message); return ctx.reply('️ Gagal membuat invoice.'); }
+        if (err) { console.error('Gagal menyimpan top up:', err.message); return ctx.reply('⚠️ Gagal membuat invoice.'); }
         const topupId = this.lastID;
         userState[ctx.from.id] = { step: 'UPLOAD_TOPUP_PROOF', topupId };
-        const detailText = `💰 *INVOICE TOP UP #${topupId}*\n\n💵 *Nominal:* Rp${amount.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS di atas.\n✅ Saldo otomatis masuk setelah Casaku konfirmasi.`;
+        const detailText = `💰 *INVOICE TOP UP #${topupId}*\n\n *Nominal:* Rp${amount.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS di atas.\n✅ Saldo otomatis masuk setelah Casaku konfirmasi.`;
         safeClearAndSend(ctx, detailText, {
           photo: { source: qris.imageBuffer },
           ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]])
@@ -698,7 +684,7 @@ const processTopUp = async (ctx, amount) => {
 const sendCatalog = async (ctx) => {
   const query = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`;
   db.all(query, async (err, products) => {
-    if (!products || products.length === 0) return await safeClearAndSend(ctx, '⚠️ Katalog kosong.', Markup.inlineKeyboard([[Markup.button.callback(' Kembali', 'main_menu')]]));
+    if (!products || products.length === 0) return await safeClearAndSend(ctx, '⚠️ Katalog kosong.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     let text = `🛒 *KATALOG PRODUK*\n\nPilih produk:`;
     let buttons = products.map(prod => [Markup.button.callback(`${prod.name} (Rp${prod.price.toLocaleString('id-ID')}) [${prod.stock_count}]`, `buy_${prod.id}`)]);
     buttons.push([Markup.button.callback('🔙 Menu Utama', 'main_menu')]);
@@ -713,14 +699,14 @@ bot.action(/^buy_(.+)$/, async (ctx) => {
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
     db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [prodId], async (err, res) => {
       const available = res ? res.stock_count : 0;
-      if (available <= 0) return ctx.answerCbQuery(`⚠️ Stok ${prod.name} habis!`, { show_alert: true });
+      if (available <= 0) return ctx.answerCbQuery(`️ Stok ${prod.name} habis!`, { show_alert: true });
       const captionText = `📦 *DETAIL: ${prod.name}*\n💰 *Harga:* Rp${prod.price.toLocaleString('id-ID')}\n📊 *Stok:* ${available}\n\n*Pilih Jumlah (Max ${Math.min(100, available)}):*`;
       const qtyButtons = [];
       const limits = [1, 2, 5, 10, 20, 50, 100];
       let row = [];
       limits.forEach(q => {
         if (q <= available) {
-          row.push(Markup.button.callback(`🛒 Beli ${q}`, `selectqty_${prodId}_${q}`));
+          row.push(Markup.button.callback(` Beli ${q}`, `selectqty_${prodId}_${q}`));
           if (row.length === 3) { qtyButtons.push(row); row = []; }
         }
       });
@@ -741,9 +727,9 @@ bot.action(/^selectqty_(.+)_(.+)$/, async (ctx) => {
       [Markup.button.callback('🎟️ Pakai Voucher', `vouc_${prodId}_${qty}`)],
       [Markup.button.callback('💳 Bayar via QRIS', `pay_${prodId}_${qty}_0`)],
       [Markup.button.callback('💰 Bayar Pakai Saldo', `paysaldo_${prodId}_${qty}`)],
-      [Markup.button.callback('🔙 Kembali', `buy_${prodId}`)]
+      [Markup.button.callback(' Kembali', `buy_${prodId}`)]
     ]);
-    const text = `🛍️ *KONFIRMASI PESANAN*\n\n📦 *Produk:* ${prod.name}\n🔢 *Jumlah:* ${qty} item\n💰 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`;
+    const text = `🛍️ *KONFIRMASI PESANAN*\n\n *Produk:* ${prod.name}\n *Jumlah:* ${qty} item\n💰 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`;
     safeClearAndSend(ctx, text, buttons);
   });
 });
@@ -752,7 +738,7 @@ bot.action(/^vouc_(.+)_(.+)$/, async (ctx) => {
   const prodId = ctx.match[1];
   const qty = ctx.match[2];
   userState[ctx.from.id] = { step: 'INPUT_VOUCHER', prodId, qty };
-  await safeClearAndSend(ctx, `🎟️ *MASUKKAN KODE VOUCHER*\n\nKetik kode voucher:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `selectqty_${prodId}_${qty}`)]]));
+  await safeClearAndSend(ctx, `️ *MASUKKAN KODE VOUCHER*\n\nKetik kode voucher:`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', `selectqty_${prodId}_${qty}`)]]));
 });
 
 bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
@@ -760,7 +746,7 @@ bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
   const qty = parseInt(ctx.match[2]);
   const discount = parseInt(ctx.match[3]) || 0;
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
-    if (err || !prod) return ctx.answerCbQuery('️ Produk tidak ditemukan.', { show_alert: true });
+    if (err || !prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
     const basePrice = Math.max(1000, (prod.price * qty) - discount);
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
     try {
@@ -768,10 +754,10 @@ bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
       const now = new Date().toISOString();
       db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
         [ctx.from.id, username, prodId, qty, discount, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (dbErr) {
-          if (dbErr) { console.error('Gagal menyimpan order QRIS:', dbErr.message); return ctx.reply('️ Gagal membuat pesanan.'); }
+          if (dbErr) { console.error('Gagal menyimpan order QRIS:', dbErr.message); return ctx.reply('⚠️ Gagal membuat pesanan.'); }
           const orderId = this.lastID;
           userState[ctx.from.id] = { step: 'UPLOAD_PROOF', orderId };
-          const detailText = `🧾 *PESANAN #${orderId}*\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💰 *Harga:* Rp${basePrice.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n Scan QRIS dinamis.\n✅ Pembayaran otomatis diproses Casaku.`;
+          const detailText = `🧾 *PESANAN #${orderId}*\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💰 *Harga:* Rp${basePrice.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS dinamis.\n✅ Pembayaran otomatis diproses Casaku.`;
           safeClearAndSend(ctx, detailText, {
             photo: { source: qris.imageBuffer },
             ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]])
@@ -789,9 +775,9 @@ bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
   const qty = parseInt(ctx.match[2]);
   const userId = ctx.from.id;
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
-    if (!prod) return ctx.answerCbQuery('️ Produk tidak ditemukan.', { show_alert: true });
+    if (!prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
     db.all(`SELECT * FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE' LIMIT ?`, [prodId, qty], (err, stocks) => {
-      if (!stocks || stocks.length < qty) return ctx.answerCbQuery(`⚠️ Stok tidak cukup!`, { show_alert: true });
+      if (!stocks || stocks.length < qty) return ctx.answerCbQuery(`️ Stok tidak cukup!`, { show_alert: true });
       db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err, row) => {
         const tier = row ? row.tier : 'Bronze';
         const balance = row ? row.balance : 0;
@@ -811,7 +797,7 @@ bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
             await safeClearAndSend(ctx, `🎉 *PEMBELIAN BERHASIL (SALDO)!*\n\nDetail (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${prod.note ? `📝 *CATATAN:*\n${prod.note}` : ''}`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
             db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
               if (store && store.log_group_id) {
-                const testiText = `🎉 *TRANSAKSI SUKSES (SALDO)*\n\n *ID:* #${orderId}\n *Produk:* ${prod.name} (${qty}x)\n💰 *Total:* Rp${totalCost.toLocaleString('id-ID')}\n👤 *Buyer:* ${username}`;
+                const testiText = `🎉 *TRANSAKSI SUKSES (SALDO)*\n\n🧾 *ID:* #${orderId}\n📦 *Produk:* ${prod.name} (${qty}x)\n💰 *Total:* Rp${totalCost.toLocaleString('id-ID')}\n *Buyer:* ${username}`;
                 bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
               }
             });
@@ -867,7 +853,7 @@ const approveOrderById = (orderId) => {
         bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI!*\n\nDetail (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${order.product_note ? `📝 *CATATAN:*\n${order.product_note}` : ''}`, { parse_mode: 'Markdown' }).catch(() => {});
         db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
           if (store && store.log_group_id) {
-            const testiText = `🎉 *TESTIMONI SUKSES*\n\n🧾 *ID:* #${order.id}\n📦 *Produk:* ${order.product_name} (${order.quantity}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}`;
+            const testiText = ` *TESTIMONI SUKSES*\n\n *ID:* #${order.id}\n *Produk:* ${order.product_name} (${order.quantity}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n *Buyer:* ${order.username}`;
             const photoToSend = order.proof || order.prod_photo;
             if (photoToSend) bot.telegram.sendPhoto(store.log_group_id, photoToSend, { caption: testiText, parse_mode: 'Markdown' }).catch(() => {});
             else bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
@@ -889,7 +875,7 @@ const approveScriptOrderById = (orderId) => {
       deliverScriptById(order.user_id, order);
       db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
         if (store && store.log_group_id) {
-          const testiText = `🎉 *TESTIMONI PEMBELIAN SCRIPT SUKSES*\n\n🧾 *ID:* #${order.id}\n📦 *Script:* ${order.script_name}\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}`;
+          const testiText = `🎉 *TESTIMONI PEMBELIAN SCRIPT SUKSES*\n\n🧾 *ID:* #${order.id}\n📦 *Script:* ${order.script_name}\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n *Buyer:* ${order.username}`;
           bot.telegram.sendMessage(store.log_group_id, testiText, { parse_mode: 'Markdown' }).catch(() => {});
         }
       });
@@ -904,7 +890,7 @@ bot.action(/^approve_(.+)$/, async (ctx) => {
   if (!result.ok) {
     let msg = 'Pesanan tidak ditemukan.';
     if (result.reason === 'ALREADY_APPROVED') msg = 'Sudah di-approve!';
-    if (result.reason === 'OUT_OF_STOCK') msg = `️ Stok kurang (${result.available}/${result.order.quantity})!`;
+    if (result.reason === 'OUT_OF_STOCK') msg = `⚠️ Stok kurang (${result.available}/${result.order.quantity})!`;
     return ctx.answerCbQuery(msg, { show_alert: true });
   }
   ctx.answerCbQuery('✅ Pesanan di-approve.', { show_alert: true });
@@ -916,7 +902,7 @@ bot.action(/^reject_(.+)$/, async (ctx) => {
   db.get(`SELECT * FROM orders WHERE id = ?`, [ctx.match[1]], (err, order) => {
     if (!order) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true });
     db.run(`UPDATE orders SET status = 'REJECTED' WHERE id = ?`, [ctx.match[1]]);
-    bot.telegram.sendMessage(order.user_id, `❌ *PEMBAYARAN DITOLAK*\n\nPesanan #${ctx.match[1]} tidak valid.`, { parse_mode: 'Markdown' }).catch(() => {});
+    bot.telegram.sendMessage(order.user_id, ` *PEMBAYARAN DITOLAK*\n\nPesanan #${ctx.match[1]} tidak valid.`, { parse_mode: 'Markdown' }).catch(() => {});
     ctx.answerCbQuery('Pesanan ditolak.', { show_alert: true });
     if (ctx.editMessageCaption) ctx.editMessageCaption(`❌ REJECTED - Order #${ctx.match[1]}`).catch(() => {});
   });
@@ -972,7 +958,7 @@ bot.action('admin_set_leave', (ctx) => {
 bot.action('admin_set_song', (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
   userState[getAdminId()] = { step: 'SET_SONG' };
-  ctx.reply(' Kirimkan file audio/lagu:');
+  ctx.reply('🎵 Kirimkan file audio/lagu:');
 });
 bot.action('admin_set_uname', (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
@@ -1021,11 +1007,11 @@ const showUserManageCard = (ctx, targetId) => {
     }
     const tier = row.tier || 'Bronze';
     const balance = tier === 'Owner' ? '∞ (Unlimited)' : `Rp${(row.balance || 0).toLocaleString('id-ID')}`;
-    const text = `👤 *KELOLA USER*\n\n🆔 *ID:* \`${targetId}\`\n💳 Saldo: ${balance}\n🏷️ Tier: ${tier}`;
+    const text = ` *KELOLA USER*\n\n *ID:* \`${targetId}\`\n Saldo: ${balance}\n🏷️ Tier: ${tier}`;
     ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
       [Markup.button.callback('➕ Tambah Saldo', `adduser_saldo_${targetId}`), Markup.button.callback('➖ Kurangi Saldo', `subuser_saldo_${targetId}`)],
       [Markup.button.callback('🥉 Bronze', `settier_${targetId}_Bronze`), Markup.button.callback('🥈 Silver', `settier_${targetId}_Silver`)],
-      [Markup.button.callback('🥇 Gold', `settier_${targetId}_Gold`), Markup.button.callback('👑 Owner', `settier_${targetId}_Owner`)],
+      [Markup.button.callback(' Gold', `settier_${targetId}_Gold`), Markup.button.callback('👑 Owner', `settier_${targetId}_Owner`)],
       [Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]
     ]) });
   });
@@ -1075,7 +1061,7 @@ bot.action('admin_del_prod', (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
   db.all(`SELECT * FROM products`, (err, rows) => {
     if (!rows || rows.length === 0) return ctx.reply('Tidak ada produk.');
-    const buttons = rows.map(p => [Markup.button.callback(`🗑️ ${p.name}`, `delprod_${p.id}`)]);
+    const buttons = rows.map(p => [Markup.button.callback(`️ ${p.name}`, `delprod_${p.id}`)]);
     ctx.reply('Pilih produk yang dihapus:', Markup.inlineKeyboard(buttons));
   });
 });
@@ -1096,7 +1082,7 @@ bot.action('admin_add_stock', (ctx) => {
 bot.action(/^addstock_(.+)$/, (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
   userState[getAdminId()] = { step: 'ADD_STOCK_BULK', prodId: ctx.match[1] };
-  ctx.reply(' TAMBAH STOK MASSAL\n\nPaste banyak akun/kode (setiap baris = 1 stok):');
+  ctx.reply('📥 TAMBAH STOK MASSAL\n\nPaste banyak akun/kode (setiap baris = 1 stok):');
 });
 bot.action('admin_autoreply_type', (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
@@ -1159,7 +1145,7 @@ bot.on('photo', async (ctx) => {
       db.run(`UPDATE topups SET proof = ?, status = 'PENDING_REVIEW' WHERE id = ?`, [photoId, topupId]);
       ctx.replyWithMarkdown('✅ Bukti top up diterima! Mohon tunggu verifikasi admin.');
       if (adminId) {
-        const reviewText = ` *KONFIRMASI TOP UP #${topupId}*\n\n💵 *Nominal:* Rp${topup.amount.toLocaleString('id-ID')}\n💳 *Total:* Rp${topup.total_amount.toLocaleString('id-ID')}\n👤 *User:* ${topup.username} (ID: ${topup.user_id})`;
+        const reviewText = `💰 *KONFIRMASI TOP UP #${topupId}*\n\n💵 *Nominal:* Rp${topup.amount.toLocaleString('id-ID')}\n💳 *Total:* Rp${topup.total_amount.toLocaleString('id-ID')}\n👤 *User:* ${topup.username} (ID: ${topup.user_id})`;
         bot.telegram.sendPhoto(adminId, photoId, {
           caption: reviewText, parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `topupapprove_${topupId}`), Markup.button.callback('❌ Reject', `topupreject_${topupId}`)]])
@@ -1176,7 +1162,7 @@ bot.on('photo', async (ctx) => {
       db.run(`UPDATE orders SET proof = ?, status = 'PENDING_REVIEW' WHERE id = ?`, [photoId, orderId]);
       ctx.replyWithMarkdown('✅ Bukti transfer diterima! Mohon tunggu admin.');
       if (adminId) {
-        const reviewText = `🧾 *KONFIRMASI PEMBAYARAN #${orderId}*\n\n📦 *Produk:* ${order.product_name} (${order.quantity || 1}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n *Buyer:* ${order.username} (ID: ${order.user_id})`;
+        const reviewText = `🧾 *KONFIRMASI PEMBAYARAN #${orderId}*\n\n📦 *Produk:* ${order.product_name} (${order.quantity || 1}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username} (ID: ${order.user_id})`;
         bot.telegram.sendPhoto(adminId, photoId, {
           caption: reviewText, parse_mode: 'Markdown',
           ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approve', `approve_${orderId}`), Markup.button.callback('❌ Reject', `reject_${orderId}`)]])
@@ -1194,6 +1180,7 @@ bot.on('photo', async (ctx) => {
       .catch(() => {});
   }
 });
+
 // Handler Text
 bot.on('text', async (ctx) => {
   const adminId = getAdminId();
@@ -1248,43 +1235,6 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // === FITUR BARU: WITHDRAW ===
-  if (state.step === 'WITHDRAW_AMOUNT') {
-    const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
-    if (!amount || amount < 10000) return ctx.reply('⚠️ Minimal withdraw Rp10.000');
-    userState[userId] = { step: 'WITHDRAW_METHOD', amount };
-    ctx.reply('Pilih metode penarikan:\n1. Dana\n2. Gopay\n3. OVO\n\nKetik angka (1-3):');
-    return;
-  }
-  if (state.step === 'WITHDRAW_METHOD') {
-    const methodMap = { '1': 'Dana', '2': 'Gopay', '3': 'OVO' };
-    const method = methodMap[ctx.message.text.trim()];
-    if (!method) return ctx.reply('️ Pilih 1-3');
-    userState[userId] = { step: 'WITHDRAW_ACCOUNT', amount: state.amount, method };
-    ctx.reply(`Masukkan nomor rekening ${method}:`);
-    return;
-  }
-  if (state.step === 'WITHDRAW_ACCOUNT') {
-    const accountNumber = ctx.message.text.trim();
-    const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
-    db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err, row) => {
-      const tier = row ? row.tier : 'Bronze';
-      const balance = row ? row.balance : 0;
-      if (tier !== 'Owner' && !isAdmin(userId) && balance < state.amount) {
-        delete userState[userId];
-        return ctx.reply('⚠️ Saldo tidak cukup!');
-      }
-      if (tier !== 'Owner' && !isAdmin(userId)) {
-        db.run(`UPDATE users SET balance = balance - ? WHERE user_id = ?`, [state.amount, userId]);
-      }
-      db.run(`INSERT INTO withdrawals (user_id, username, amount, method, account_number, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        [userId, username, state.amount, state.method, accountNumber, new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })]);
-      delete userState[userId];
-      ctx.reply(`✅ Request withdraw berhasil!\n\nNominal: Rp${state.amount.toLocaleString('id-ID')}\nMetode: ${state.method}\nNo. Rekening: ${accountNumber}\n\nMohon tunggu verifikasi admin.`);
-    });
-    return;
-  }
-
   // === HANDLER EXISTING ===
   if (state.step === 'SEARCH_PRODUCT') {
     const keyword = ctx.message.text.trim();
@@ -1326,10 +1276,10 @@ bot.on('text', async (ctx) => {
   if (isAdmin(userId)) {
     if (state.step === 'SCRIPT_SET_INFO') {
       const parts = ctx.message.text.split('|');
-      if (parts.length !== 2) return ctx.reply('️ Format salah! Gunakan: Nama|Harga');
+      if (parts.length !== 2) return ctx.reply('⚠️ Format salah! Gunakan: Nama|Harga');
       const name = parts[0].trim();
       const price = parseInt(parts[1].trim());
-      if (isNaN(price)) return ctx.reply('️ Harga harus angka!');
+      if (isNaN(price)) return ctx.reply('⚠️ Harga harus angka!');
       db.get(`SELECT id FROM bot_scripts WHERE id = 1`, (err, row) => {
         if (!row) db.run(`INSERT INTO bot_scripts (id, name, price, stock) VALUES (1, ?, ?, 0)`, [name, price]);
         else db.run(`UPDATE bot_scripts SET name = ?, price = ? WHERE id = 1`, [name, price]);
@@ -1367,7 +1317,7 @@ bot.on('text', async (ctx) => {
     } else if (state.step === 'ADMIN_ADD_SALDO_AMOUNT') {
       const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
       const targetId = state.targetId;
-      if (!amount || amount <= 0) return ctx.reply('️ Angka tidak valid!');
+      if (!amount || amount <= 0) return ctx.reply('⚠️ Angka tidak valid!');
       delete userState[adminId];
       db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [amount, targetId], () => {
         ctx.reply(`✅ Saldo \`${targetId}\` ditambah Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' });
@@ -1378,7 +1328,7 @@ bot.on('text', async (ctx) => {
     } else if (state.step === 'ADMIN_SUB_SALDO_AMOUNT') {
       const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
       const targetId = state.targetId;
-      if (!amount || amount <= 0) return ctx.reply('️ Angka tidak valid!');
+      if (!amount || amount <= 0) return ctx.reply('⚠️ Angka tidak valid!');
       delete userState[adminId];
       db.run(`UPDATE users SET balance = MAX(0, COALESCE(balance, 0) - ?) WHERE user_id = ?`, [amount, targetId], () => {
         ctx.reply(`✅ Saldo \`${targetId}\` dikurangi Rp${amount.toLocaleString('id-ID')}.`, { parse_mode: 'Markdown' });
@@ -1440,7 +1390,7 @@ bot.on('text', async (ctx) => {
     } else if (state.step === 'BROADCAST_TEXT') {
       const msgText = ctx.message.text.trim();
       delete userState[adminId];
-      ctx.reply(' Mengirim Broadcast...');
+      ctx.reply('🚀 Mengirim Broadcast...');
       db.all(`SELECT user_id FROM visitors`, (err, rows) => {
         if (rows) rows.forEach(r => bot.telegram.sendMessage(r.user_id, msgText, { parse_mode: 'Markdown' }).catch(() => {}));
       });
@@ -1455,7 +1405,7 @@ bot.on('text', async (ctx) => {
       const url = ctx.message.text.trim();
       const { msgText, label } = state;
       delete userState[adminId];
-      ctx.reply(' Mengirim Broadcast Button...');
+      ctx.reply('🚀 Mengirim Broadcast Button...');
       db.all(`SELECT user_id FROM visitors`, (err, rows) => {
         if (rows) rows.forEach(r => bot.telegram.sendMessage(r.user_id, msgText, Markup.inlineKeyboard([[Markup.button.url(label, url)]])).catch(() => {}));
       });
@@ -1496,59 +1446,14 @@ bot.on('text', async (ctx) => {
   }
 });
 
-// === ADMIN: WITHDRAW MENU (FIXED - PAKAI ctx.reply BUKAN editMessageText) ===
-bot.action('admin_withdraw_menu', async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return;
-  db.all(`SELECT * FROM withdrawals WHERE status = 'PENDING' ORDER BY id DESC LIMIT 10`, (err, rows) => {
-    if (!rows || rows.length === 0) {
-      return safeClearAndSend(ctx, `💸 *KELOLA WITHDRAW*\n\nTidak ada request withdraw pending.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]]));
-    }
-    let text = `💸 *REQUEST WITHDRAW PENDING*\n\n`;
-    let buttons = [];
-    rows.forEach(r => {
-      text += `#${r.id} - ${r.username} - Rp${r.amount.toLocaleString('id-ID')} (${r.method})\nNo.Rek: ${r.account_number}\n`;
-      buttons.push([Markup.button.callback(`✅ Approve #${r.id}`, `approve_withdraw_${r.id}`), Markup.button.callback(`❌ Reject #${r.id}`, `reject_withdraw_${r.id}`)]);
-    });
-    buttons.push([Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]);
-    ctx.reply(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
-  });
-});
-
-bot.action(/^approve_withdraw_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return;
-  const withdrawId = ctx.match[1];
-  db.get(`SELECT * FROM withdrawals WHERE id = ?`, [withdrawId], (err, withdraw) => {
-    if (!withdraw) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true });
-    db.run(`UPDATE withdrawals SET status = 'APPROVED' WHERE id = ?`, [withdrawId]);
-    bot.telegram.sendMessage(withdraw.user_id, `✅ *WITHDRAW DISETUJUI*\n\nRequest withdraw Rp${withdraw.amount.toLocaleString('id-ID')} telah disetujui.\n\nMetode: ${withdraw.method}\nNo. Rekening: ${withdraw.account_number}\n\nDana akan segera ditransfer.`, { parse_mode: 'Markdown' }).catch(() => {});
-    logAdminAction(ctx.from.id, 'APPROVE_WITHDRAW', `ID: ${withdrawId}, Amount: ${withdraw.amount}`);
-    ctx.answerCbQuery('✅ Withdraw di-approve!', { show_alert: true });
-    ctx.reply(`✅ Withdraw #${withdrawId} di-approve!`);
-  });
-});
-
-bot.action(/^reject_withdraw_(.+)$/, async (ctx) => {
-  if (!isAdmin(ctx.from.id)) return;
-  const withdrawId = ctx.match[1];
-  db.get(`SELECT * FROM withdrawals WHERE id = ?`, [withdrawId], (err, withdraw) => {
-    if (!withdraw) return ctx.answerCbQuery('Tidak ditemukan.', { show_alert: true });
-    db.run(`UPDATE withdrawals SET status = 'REJECTED' WHERE id = ?`, [withdrawId]);
-    db.run(`UPDATE users SET balance = COALESCE(balance, 0) + ? WHERE user_id = ?`, [withdraw.amount, withdraw.user_id]);
-    bot.telegram.sendMessage(withdraw.user_id, `❌ *WITHDRAW DITOLAK*\n\nRequest withdraw #${withdrawId} ditolak.\nSaldo Rp${withdraw.amount.toLocaleString('id-ID')} telah dikembalikan.`, { parse_mode: 'Markdown' }).catch(() => {});
-    logAdminAction(ctx.from.id, 'REJECT_WITHDRAW', `ID: ${withdrawId}, Amount: ${withdraw.amount}`);
-    ctx.answerCbQuery('Withdraw ditolak.', { show_alert: true });
-    ctx.reply(`❌ Withdraw #${withdrawId} ditolak!`);
-  });
-});
-
-// === ADMIN: REQUEST PRODUK MENU (FIXED) ===
+// === ADMIN: REQUEST PRODUK MENU (FIXED - PAKAI ctx.reply BUKAN editMessageText) ===
 bot.action('admin_request_menu', async (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
   db.all(`SELECT * FROM product_requests WHERE status = 'PENDING' ORDER BY id DESC LIMIT 10`, (err, rows) => {
     if (!rows || rows.length === 0) {
-      return safeClearAndSend(ctx, `📝 *REQUEST PRODUK*\n\nTidak ada request produk pending.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]]));
+      return safeClearAndSend(ctx, ` *REQUEST PRODUK*\n\nTidak ada request produk pending.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]]));
     }
-    let text = `📝 *REQUEST PRODUK PENDING*\n\n`;
+    let text = ` *REQUEST PRODUK PENDING*\n\n`;
     let buttons = [];
     rows.forEach(r => {
       text += `#${r.id} - ${r.username}\nProduk: ${r.product_name}\n${r.description ? `Desc: ${r.description}\n` : ''}\n`;
@@ -1559,13 +1464,14 @@ bot.action('admin_request_menu', async (ctx) => {
   });
 });
 
+// FIX: Ganti editMessageText jadi reply biar ga error "pesan tidak ditemukan"
 bot.action(/^approve_request_(.+)$/, async (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
   const requestId = ctx.match[1];
   db.run(`UPDATE product_requests SET status = 'APPROVED' WHERE id = ?`, [requestId]);
   logAdminAction(ctx.from.id, 'APPROVE_REQUEST', `ID: ${requestId}`);
   ctx.answerCbQuery('✅ Request di-approve!', { show_alert: true });
-  ctx.reply(`✅ Request #${requestId} telah di-approve!`);
+  ctx.reply(`✅ Request #${requestId} telah di-approve!`).catch(() => {});
 });
 
 bot.action(/^reject_request_(.+)$/, async (ctx) => {
@@ -1574,7 +1480,7 @@ bot.action(/^reject_request_(.+)$/, async (ctx) => {
   db.run(`UPDATE product_requests SET status = 'REJECTED' WHERE id = ?`, [requestId]);
   logAdminAction(ctx.from.id, 'REJECT_REQUEST', `ID: ${requestId}`);
   ctx.answerCbQuery('Request ditolak.', { show_alert: true });
-  ctx.reply(`❌ Request #${requestId} telah ditolak.`);
+  ctx.reply(` Request #${requestId} telah ditolak.`).catch(() => {});
 });
 
 // === ADMIN: LOG AKTIVITAS ===
@@ -1582,7 +1488,7 @@ bot.action('admin_logs', async (ctx) => {
   if (!isAdmin(ctx.from.id)) return;
   db.all(`SELECT * FROM admin_logs ORDER BY id DESC LIMIT 20`, (err, rows) => {
     if (!rows || rows.length === 0) {
-      return safeClearAndSend(ctx, `📜 *LOG AKTIVITAS ADMIN*\n\nBelum ada log aktivitas.`, Markup.inlineKeyboard([[Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]]));
+      return safeClearAndSend(ctx, `📜 *LOG AKTIVITAS ADMIN*\n\nBelum ada log aktivitas.`, Markup.inlineKeyboard([[Markup.button.callback(' Dashboard Admin', 'admin_dashboard')]]));
     }
     let text = `📜 *LOG AKTIVITAS ADMIN (20 Terakhir)*\n\n`;
     rows.forEach(r => {
@@ -1598,14 +1504,12 @@ bot.action('admin_financial_report', async (ctx) => {
   const today = new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta' });
   db.get(`SELECT COALESCE(SUM(amount), 0) as total_sales FROM orders WHERE status = 'APPROVED' AND DATE(created_at) = DATE('now', 'localtime')`, (err, salesRow) => {
     db.get(`SELECT COALESCE(SUM(amount), 0) as total_topup FROM topups WHERE status = 'APPROVED' AND DATE(created_at) = DATE('now', 'localtime')`, (err, topupRow) => {
-      db.get(`SELECT COALESCE(SUM(amount), 0) as total_withdraw FROM withdrawals WHERE status = 'APPROVED' AND DATE(created_at) = DATE('now', 'localtime')`, (err, withdrawRow) => {
-        const totalSales = salesRow ? salesRow.total_sales : 0;
-        const totalTopup = topupRow ? topupRow.total_topup : 0;
-        const totalWithdraw = withdrawRow ? withdrawRow.total_withdraw : 0;
-        const profit = totalSales + totalTopup - totalWithdraw;
-        const text = `📊 *LAPORAN KEUANGAN HARI INI*\n\n Tanggal: ${today}\n\n💰 Total Penjualan: Rp${totalSales.toLocaleString('id-ID')}\n💳 Total Top Up: Rp${totalTopup.toLocaleString('id-ID')}\n💸 Total Withdraw: Rp${totalWithdraw.toLocaleString('id-ID')}\n\n━━━━━━━━━━━━━━━━━━━\n📈 *Profit Bersih: Rp${profit.toLocaleString('id-ID')}*`;
-        safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback(' Dashboard Admin', 'admin_dashboard')]]));
-      });
+      // Withdraw dihapus dari laporan keuangan
+      const totalSales = salesRow ? salesRow.total_sales : 0;
+      const totalTopup = topupRow ? topupRow.total_topup : 0;
+      const profit = totalSales + totalTopup; 
+      const text = `📊 *LAPORAN KEUANGAN HARI INI*\n\n Tanggal: ${today}\n\n💰 Total Penjualan: Rp${totalSales.toLocaleString('id-ID')}\n💳 Total Top Up: Rp${totalTopup.toLocaleString('id-ID')}\n\n━━━━━━━━━━━━━━━━━━━\n📈 *Profit Bersih: Rp${profit.toLocaleString('id-ID')}*`;
+      safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]]));
     });
   });
 });
@@ -1614,7 +1518,7 @@ const setupCommandMenu = async () => {
   try {
     await bot.telegram.setMyCommands([
       { command: 'start', description: '🏠 Menu Utama' },
-      { command: 'katalog', description: '🛒 Katalog Produk' },
+      { command: 'katalog', description: ' Katalog Produk' },
       { command: 'pesanan', description: '📦 Riwayat Pesanan' },
       { command: 'referral', description: '🔗 Link Referral' },
       { command: 'cs', description: '📞 Customer Service' }
@@ -1625,7 +1529,7 @@ const setupCommandMenu = async () => {
         { command: 'start', description: '🏠 Menu Utama' },
         { command: 'katalog', description: '🛒 Katalog Produk' },
         { command: 'pesanan', description: '📦 Riwayat Pesanan' },
-        { command: 'referral', description: '🔗 Link Referral' },
+        { command: 'referral', description: ' Link Referral' },
         { command: 'cs', description: '📞 Customer Service' },
         { command: 'admin', description: '⚙️ Dashboard Admin' }
       ], { scope: { type: 'chat', chat_id: adminId } });
@@ -1634,6 +1538,35 @@ const setupCommandMenu = async () => {
 };
 
 const app = express();
+
+// === FITUR AUTOPLAY LAGU VIA WEB ===
+app.get('/lagu', (req, res) => {
+  db.get(`SELECT song FROM store WHERE id = 1`, (err, store) => {
+    if (store && store.song) {
+      // HTML5 Audio Player dengan Autoplay
+      // Catatan: File ID Telegram tidak bisa langsung diputar di browser tanpa di-download via Bot API.
+      // Ini adalah template. Lu perlu upload file audio ke hosting lu sendiri atau gunakan URL direct.
+      res.send(`
+        <html>
+          <head><title>Auto Play Music</title></head>
+          <body style="background:#000; color:#fff; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;">
+            <div style="text-align:center;">
+              <h1>🎵 Now Playing</h1>
+              <p>Audio sedang diputar otomatis...</p>
+              <audio controls autoplay>
+                <source src="URL_AUDIO_LU_DISINI.mp3" type="audio/mpeg">
+                Browser lu tidak support audio player.
+              </audio>
+            </div>
+          </body>
+        </html>
+      `);
+    } else {
+      res.send('Lagu belum diatur oleh admin.');
+    }
+  });
+});
+
 app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
   const secret = process.env.CASAKU_WEBHOOK_SECRET;
   const signature = req.headers['x-casaku-signature'];
@@ -1684,8 +1617,8 @@ app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
                   const result = await approveTopupById(topup.id);
                   if (result.ok) { matchedType = 'topup'; matchedId = topup.id; console.log(`✅ Webhook: topup #${topup.id} auto-approved.`); }
                 } else {
-                  console.log(`⚠️ Webhook: tidak ada order/topup PENDING dengan nominal Rp${amount}.`);
-                  if (adminId) bot.telegram.sendMessage(adminId, `⚠️ *Pembayaran Tanpa Pasangan*\n\nDana Rp${amount.toLocaleString('id-ID')} masuk, tapi tidak ada order/topup PENDING.\n\n🧾 ID: \`${transactionId}\``, { parse_mode: 'Markdown' }).catch(() => {});
+                  console.log(`️ Webhook: tidak ada order/topup PENDING dengan nominal Rp${amount}.`);
+                  if (adminId) bot.telegram.sendMessage(adminId, `️ *Pembayaran Tanpa Pasangan*\n\nDana Rp${amount.toLocaleString('id-ID')} masuk, tapi tidak ada order/topup PENDING.\n\n🧾 ID: \`${transactionId}\``, { parse_mode: 'Markdown' }).catch(() => {});
                 }
                 db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [transactionId, matchedType, matchedId, amount, now]);
               });
