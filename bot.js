@@ -4,7 +4,7 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
-const { verifyCasakuSignature, generateDynamicQRIS } = require('./casaku');
+const { verifyAutoKuySignature, generateDynamicQRIS } = require('./autokuy');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
 // ====== FOTO DEFAULT (HARDCODE) ======
@@ -437,9 +437,10 @@ bot.action(/^script_pay_qris_(.+)$/, async (ctx) => {
     if (!script) return ctx.answerCbQuery('Script tidak ditemukan.', { show_alert: true });
     if (script.stock <= 0) return ctx.answerCbQuery('Stok habis!', { show_alert: true });
     try {
-      const qris = await generateDynamicQRIS(script.price, `SCR`);
+      const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+      const qris = await generateDynamicQRIS(script.price, `SCR`, { name: buyerName, phone: String(ctx.from.id) });
       const now = new Date().toISOString();
-      const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+      const username = buyerName;
       db.run(`INSERT INTO script_orders (user_id, username, script_id, amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
         [userId, username, scriptId, script.price, now, qris.transactionId, qris.expiresAt], function (dbErr) {
           if (dbErr) return safeClearAndSend(ctx, '⚠️ Gagal membuat pesanan.');
@@ -624,9 +625,9 @@ bot.action('user_topup_custom', async (ctx) => {
 const processTopUp = async (ctx, amount) => {
   if (!Number.isInteger(amount) || amount < 500 || amount > 10000000) return ctx.answerCbQuery('⚠️ Nominal harus Rp500–Rp10.000.000.', { show_alert: true });
   try {
-    const qris = await generateDynamicQRIS(amount, `TOPUP`);
-    const now = new Date().toISOString();
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
+    const qris = await generateDynamicQRIS(amount, `TOPUP`, { name: username, phone: String(ctx.from.id) });
+    const now = new Date().toISOString();
     db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
       [ctx.from.id, username, amount, qris.uniqueCode, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (err) {
         if (err) return safeClearAndSend(ctx, '⚠️ Gagal membuat invoice.');
@@ -748,7 +749,7 @@ bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
     const basePrice = Math.max(1000, (prod.price * qty) - discount);
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
     try {
-      const qris = await generateDynamicQRIS(basePrice, `ORD`);
+      const qris = await generateDynamicQRIS(basePrice, `ORD`, { name: username, phone: String(ctx.from.id) });
       const now = new Date().toISOString();
       db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
         [ctx.from.id, username, prodId, qty, discount, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (dbErr) {
@@ -1574,63 +1575,63 @@ const setupCommandMenu = async () => {
 };
 
 const app = express();
-app.post('/webhook/casaku', express.raw({ type: '*/*' }), async (req, res) => {
-  const secret = process.env.CASAKU_WEBHOOK_SECRET;
-  const signature = req.headers['x-casaku-signature'];
+app.post('/webhook/autokuy', express.raw({ type: '*/*' }), async (req, res) => {
+  const secret = process.env.AUTOKUY_WEBHOOK_SECRET;
+  const signature = req.headers['x-autokuy-signature'];
+  const timestamp = req.headers['x-autokuy-timestamp'];
   const rawBody = req.body;
   if (!secret) return res.status(500).send('Webhook secret not configured');
-  if (!verifyCasakuSignature(rawBody, signature, secret)) return res.status(401).send('Invalid signature');
+
+  // Tolak timestamp yang kelewat lama (anti-replay), sesuai rekomendasi dokumentasi AutoKuy (>5 menit)
+  const tsNumber = Number(timestamp);
+  if (!tsNumber || Math.abs(Date.now() / 1000 - tsNumber) > 300) {
+    return res.status(401).send('Invalid or expired timestamp');
+  }
+  if (!verifyAutoKuySignature(timestamp, rawBody, signature, secret)) return res.status(401).send('Invalid signature');
+
   let payload;
   try { payload = JSON.parse(rawBody.toString('utf8')); } catch (e) { return res.status(400).send('Invalid JSON'); }
-  res.status(200).send('OK');
-  const { transactionId, amount, status } = payload;
-  if (status !== 'paid' || !transactionId || !amount) return;
-  db.get(`SELECT * FROM casaku_webhook_log WHERE transaction_id = ?`, [transactionId], async (err, existing) => {
-    if (existing) return;
-    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
-    let matchedType = null, matchedId = null;
+  res.status(200).send('OK'); // balas 2xx dulu secepatnya, baru proses (sesuai retry policy AutoKuy)
 
-    db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, scriptOrderByTrx) => {
-      const findScriptOrder = (callback) => {
-        if (scriptOrderByTrx) return callback(scriptOrderByTrx);
-        db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy));
-      };
-      findScriptOrder(async (scriptOrder) => {
+  const { event, event_id, invoice_id, amount, status } = payload;
+  if (!event_id || !invoice_id) return;
+
+  db.get(`SELECT transaction_id FROM casaku_webhook_log WHERE transaction_id = ?`, [event_id], async (err, existing) => {
+    if (existing) return; // event ini sudah pernah diproses, anti-replay
+    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+
+    if (event === 'invoice.paid' && status === 'PAID') {
+      let matchedType = null, matchedId = null;
+      db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, scriptOrder) => {
         if (scriptOrder) {
           const result = await approveScriptOrderById(scriptOrder.id);
           if (result.ok) { matchedType = 'script_order'; matchedId = scriptOrder.id; }
-          db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [transactionId, matchedType, matchedId, amount, now]);
-          return;
+          return db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
         }
-        db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, orderByTrx) => {
-          const findOrder = (callback) => {
-            if (orderByTrx) return callback(orderByTrx);
-            db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy));
-          };
-          findOrder(async (order) => {
-            if (order) {
-              const result = await approveOrderById(order.id);
-              if (result.ok) { matchedType = 'order'; matchedId = order.id; }
-              db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [transactionId, matchedType, matchedId, amount, now]);
-              return;
+        db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, order) => {
+          if (order) {
+            const result = await approveOrderById(order.id);
+            if (result.ok) { matchedType = 'order'; matchedId = order.id; }
+            return db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
+          }
+          db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, topup) => {
+            if (topup) {
+              const result = await approveTopupById(topup.id);
+              if (result.ok) { matchedType = 'topup'; matchedId = topup.id; }
             }
-            db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [transactionId], async (err, topupByTrx) => {
-              const findTopup = (callback) => {
-                if (topupByTrx) return callback(topupByTrx);
-                db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND total_amount = ? AND (casaku_transaction_id IS NULL OR casaku_transaction_id = '') ORDER BY created_at ASC LIMIT 1`, [amount], (e, legacy) => callback(legacy));
-              };
-              findTopup(async (topup) => {
-                if (topup) {
-                  const result = await approveTopupById(topup.id);
-                  if (result.ok) { matchedType = 'topup'; matchedId = topup.id; }
-                }
-                db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [transactionId, matchedType, matchedId, amount, now]);
-              });
-            });
+            db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
           });
         });
       });
-    });
+    } else if (event === 'invoice.expired') {
+      // Invoice kadaluarsa tanpa dibayar: tandai PENDING jadi EXPIRED biar tidak nyangkut
+      db.run(`UPDATE script_orders SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
+      db.run(`UPDATE orders SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
+      db.run(`UPDATE topups SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
+      db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, 'expired', null, amount, now]);
+    } else {
+      db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, 'ignored', null, amount, now]);
+    }
   });
 });
 
