@@ -53,6 +53,7 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS visitors ( user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, joined_at TEXT )`);
   db.run(`CREATE TABLE IF NOT EXISTS groups (group_id INTEGER PRIMARY KEY)`);
   db.run(`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, photo TEXT DEFAULT '', note TEXT DEFAULT '')`);
+  db.run(`ALTER TABLE products ADD COLUMN parent_id INTEGER`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS orders ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, product_id INTEGER, quantity INTEGER DEFAULT 1, status TEXT, proof TEXT, discount INTEGER DEFAULT 0, amount INTEGER DEFAULT 0, created_at TEXT, casaku_transaction_id TEXT, qris_expires_at TEXT )`);
   db.run(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1`, () => {});
   db.run(`ALTER TABLE orders ADD COLUMN casaku_transaction_id TEXT`, () => {});
@@ -263,6 +264,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('📊 Statistik', 'admin_stats'), Markup.button.callback('💾 Backup DB', 'admin_backup')],
     [Markup.button.callback('📄 Backup bot.js', 'admin_backup_code')],
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
+    [Markup.button.callback('🧩 Tambah Varian', 'admin_add_variant')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
     [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🧾 Set Foto QRIS', 'admin_set_qris_photo')],
     [Markup.button.callback('🅳 Set Nomor DANA', 'admin_set_dana'), Markup.button.callback('🅶 Set Nomor GoPay', 'admin_set_gopay')],
@@ -665,17 +667,47 @@ const processTopUp = async (ctx, amount) => {
 };
 
 const sendCatalog = async (ctx) => {
-  const query = `SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' GROUP BY p.id`;
+  const query = `SELECT p.*,
+    (SELECT COUNT(*) FROM stock_items s WHERE s.product_id = p.id AND s.status = 'AVAILABLE') AS stock_count,
+    (SELECT COUNT(*) FROM products c WHERE c.parent_id = p.id) AS variant_count
+    FROM products p WHERE p.parent_id IS NULL`;
   db.all(query, async (err, products) => {
     if (!products || products.length === 0) return await safeClearAndSend(ctx, '⚠️ Katalog kosong.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', 'main_menu')]]));
     let text = `🛒 *KATALOG PRODUK*\n\nPilih produk:`;
-    let buttons = products.map(prod => [Markup.button.callback(`${prod.name} (Rp${prod.price.toLocaleString('id-ID')}) [${prod.stock_count}]`, `buy_${prod.id}`)]);
+    let buttons = products.map(prod => {
+      if (prod.variant_count > 0) {
+        return [Markup.button.callback(`🧩 ${prod.name} (${prod.variant_count} varian)`, `variantlist_${prod.id}`)];
+      }
+      return [Markup.button.callback(`${prod.name} (Rp${prod.price.toLocaleString('id-ID')}) [${prod.stock_count}]`, `buy_${prod.id}`)];
+    });
     buttons.push([Markup.button.callback('🔙 Menu Utama', 'main_menu')]);
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
   });
 };
 bot.action('user_catalog', sendCatalog);
 bot.command('katalog', sendCatalog);
+
+// Submenu pilih varian (misal: Batu Enchant -> Api / Es / Racun)
+bot.action(/^variantlist_(.+)$/, async (ctx) => {
+  const parentId = ctx.match[1];
+  db.get(`SELECT * FROM products WHERE id = ?`, [parentId], (err, parent) => {
+    if (!parent) return;
+    db.all(`SELECT p.*, COUNT(s.id) AS stock_count FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE' WHERE p.parent_id = ? GROUP BY p.id`, [parentId], async (err, variants) => {
+      if (!variants || variants.length === 0) return safeClearAndSend(ctx, '⚠️ Belum ada varian.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Katalog', 'user_catalog')]]));
+      let text = `🧩 *${parent.name}*\n\nPilih varian:`;
+      let buttons = variants.map(v => {
+        let label = v.name;
+        if (label.startsWith(parent.name)) {
+          const stripped = label.slice(parent.name.length).replace(/^[\s\-–:]+/, '');
+          if (stripped) label = stripped;
+        }
+        return [Markup.button.callback(`${label} (Rp${v.price.toLocaleString('id-ID')}) [${v.stock_count}]`, `buy_${v.id}`)];
+      });
+      buttons.push([Markup.button.callback('🔙 Katalog', 'user_catalog')]);
+      await safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
+    });
+  });
+});
 
 const renderQtySelector = async (ctx, prodId, qty, editInPlace) => {
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
@@ -1172,6 +1204,20 @@ bot.action('admin_add_prod', (ctx) => {
   userState[getAdminId()] = { step: 'ADD_PROD_NAME' };
   safeClearAndSend(ctx, 'Masukkan Nama Produk:');
 });
+bot.action('admin_add_variant', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM products WHERE parent_id IS NULL`, (err, rows) => {
+    if (!rows || rows.length === 0) return safeClearAndSend(ctx, '⚠️ Tambah produk dulu (buat dijadiin induk)!');
+    const buttons = rows.map(p => [Markup.button.callback(`🧩 ${p.name}`, `addvariantparent_${p.id}`)]);
+    buttons.push([Markup.button.callback('🔙 Batal', 'admin_dashboard')]);
+    safeClearAndSend(ctx, 'Pilih produk INDUK buat ditambahin varian\n(contoh: pilih "Batu Enchant" buat nambahin varian "Api", "Es", dst):', Markup.inlineKeyboard(buttons));
+  });
+});
+bot.action(/^addvariantparent_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'ADD_VARIANT_NAME', parentId: ctx.match[1] };
+  safeClearAndSend(ctx, '✍️ Masukkan Nama Varian (contoh: Api, Es, Racun):');
+});
 bot.action('admin_del_prod', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   db.all(`SELECT * FROM products`, (err, rows) => {
@@ -1182,9 +1228,14 @@ bot.action('admin_del_prod', (ctx) => {
 });
 bot.action(/^delprod_(.+)$/, (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
-  db.run(`DELETE FROM products WHERE id = ?`, [ctx.match[1]]);
-  db.run(`DELETE FROM stock_items WHERE product_id = ?`, [ctx.match[1]]);
-  safeClearAndSend(ctx, '✅ Produk dihapus!');
+  const prodId = ctx.match[1];
+  db.all(`SELECT id FROM products WHERE parent_id = ?`, [prodId], (err, children) => {
+    const childIds = (children || []).map(c => c.id);
+    const allIds = [prodId, ...childIds];
+    db.run(`DELETE FROM products WHERE id IN (${allIds.map(() => '?').join(',')})`, allIds);
+    db.run(`DELETE FROM stock_items WHERE product_id IN (${allIds.map(() => '?').join(',')})`, allIds);
+    safeClearAndSend(ctx, childIds.length > 0 ? `✅ Produk & ${childIds.length} variannya dihapus!` : '✅ Produk dihapus!');
+  });
 });
 bot.action('admin_add_stock', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
@@ -1263,6 +1314,12 @@ bot.on('photo', async (ctx) => {
       db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, ?)`, [name, price, photoId]);
       delete userState[adminId];
       return safeClearAndSend(ctx, '✅ Produk dengan foto ditambahkan!');
+    }
+    if (userState[adminId].step === 'ADD_VARIANT_PHOTO') {
+      const { name, price, parentId } = userState[adminId];
+      db.run(`INSERT INTO products (name, price, photo, parent_id) VALUES (?, ?, ?, ?)`, [name, price, photoId, parentId]);
+      delete userState[adminId];
+      return safeClearAndSend(ctx, `✅ Varian *${name}* dengan foto ditambahkan!`, { parse_mode: 'Markdown' });
     }
     return;
   }
@@ -1566,6 +1623,22 @@ bot.on('text', async (ctx) => {
       db.run(`INSERT INTO products (name, price, photo) VALUES (?, ?, '')`, [state.name, state.price]);
       delete userState[adminId];
       safeClearAndSend(ctx, '✅ Produk ditambahkan tanpa foto!');
+    } else if (state.step === 'ADD_VARIANT_NAME') {
+      db.get(`SELECT name FROM products WHERE id = ?`, [state.parentId], (err, parent) => {
+        const parentName = parent ? parent.name : '';
+        const fullName = `${parentName} - ${ctx.message.text.trim()}`;
+        userState[adminId] = { step: 'ADD_VARIANT_PRICE', parentId: state.parentId, name: fullName };
+        safeClearAndSend(ctx, 'Masukkan Harga Varian (angka):');
+      });
+    } else if (state.step === 'ADD_VARIANT_PRICE') {
+      const price = parseInt(ctx.message.text.trim());
+      if (isNaN(price)) return safeClearAndSend(ctx, '⚠️ Angka tidak valid!');
+      userState[adminId] = { step: 'ADD_VARIANT_PHOTO', parentId: state.parentId, name: state.name, price };
+      safeClearAndSend(ctx, '📸 Kirim foto varian (atau ketik *lewati*):', { parse_mode: 'Markdown' });
+    } else if (state.step === 'ADD_VARIANT_PHOTO' && ctx.message.text.toLowerCase() === 'lewati') {
+      db.run(`INSERT INTO products (name, price, photo, parent_id) VALUES (?, ?, '', ?)`, [state.name, state.price, state.parentId]);
+      delete userState[adminId];
+      safeClearAndSend(ctx, `✅ Varian *${state.name}* ditambahkan tanpa foto!`, { parse_mode: 'Markdown' });
     } else if (state.step === 'ADD_STOCK_BULK') {
       const lines = ctx.message.text.split('\n').map(i => i.trim()).filter(i => i !== '');
       if (lines.length === 0) return safeClearAndSend(ctx, '⚠️ Tidak ada stok terdeteksi.');
@@ -1653,41 +1726,4 @@ app.post('/webhook/autokuy', express.raw({ type: '*/*' }), async (req, res) => {
 
     if (event === 'invoice.paid' && status === 'PAID') {
       let matchedType = null, matchedId = null;
-      db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, scriptOrder) => {
-        if (scriptOrder) {
-          const result = await approveScriptOrderById(scriptOrder.id);
-          if (result.ok) { matchedType = 'script_order'; matchedId = scriptOrder.id; }
-          return db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
-        }
-        db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, order) => {
-          if (order) {
-            const result = await approveOrderById(order.id);
-            if (result.ok) { matchedType = 'order'; matchedId = order.id; }
-            return db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
-          }
-          db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, topup) => {
-            if (topup) {
-              const result = await approveTopupById(topup.id);
-              if (result.ok) { matchedType = 'topup'; matchedId = topup.id; }
-            }
-            db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
-          });
-        });
-      });
-    } else if (event === 'invoice.expired') {
-      // Invoice kadaluarsa tanpa dibayar: tandai PENDING jadi EXPIRED biar tidak nyangkut
-      db.run(`UPDATE script_orders SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
-      db.run(`UPDATE orders SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
-      db.run(`UPDATE topups SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
-      db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, 'expired', null, amount, now]);
-    } else {
-      db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, 'ignored', null, amount, now]);
-    }
-  });
-});
-
-app.get('/', (req, res) => res.send('Bot is running.'));
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🌐 Webhook server listening on port ${PORT}`));
-bot.launch().then(setupCommandMenu);
-console.log('Bot Telegram Running Full Edition...');
+      db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [
