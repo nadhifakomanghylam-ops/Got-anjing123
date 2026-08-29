@@ -877,7 +877,6 @@ const payManualNumber = async (ctx, prodId, qty, discount, methodKey, methodLabe
 bot.action(/^paydana_(.+)_(.+)_(.+)$/, async (ctx) => {
   await payManualNumber(ctx, ctx.match[1], parseInt(ctx.match[2]), parseInt(ctx.match[3]) || 0, 'dana', 'DANA');
 });
-
 bot.action(/^paygopay_(.+)_(.+)_(.+)$/, async (ctx) => {
   await payManualNumber(ctx, ctx.match[1], parseInt(ctx.match[2]), parseInt(ctx.match[3]) || 0, 'gopay', 'GoPay');
 });
@@ -1726,4 +1725,41 @@ app.post('/webhook/autokuy', express.raw({ type: '*/*' }), async (req, res) => {
 
     if (event === 'invoice.paid' && status === 'PAID') {
       let matchedType = null, matchedId = null;
-      db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [
+      db.get(`SELECT id FROM script_orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, scriptOrder) => {
+        if (scriptOrder) {
+          const result = await approveScriptOrderById(scriptOrder.id);
+          if (result.ok) { matchedType = 'script_order'; matchedId = scriptOrder.id; }
+          return db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
+        }
+        db.get(`SELECT id FROM orders WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, order) => {
+          if (order) {
+            const result = await approveOrderById(order.id);
+            if (result.ok) { matchedType = 'order'; matchedId = order.id; }
+            return db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
+          }
+          db.get(`SELECT id FROM topups WHERE status = 'PENDING' AND casaku_transaction_id = ? LIMIT 1`, [invoice_id], async (err, topup) => {
+            if (topup) {
+              const result = await approveTopupById(topup.id);
+              if (result.ok) { matchedType = 'topup'; matchedId = topup.id; }
+            }
+            db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, matchedType, matchedId, amount, now]);
+          });
+        });
+      });
+    } else if (event === 'invoice.expired') {
+      // Invoice kadaluarsa tanpa dibayar: tandai PENDING jadi EXPIRED biar tidak nyangkut
+      db.run(`UPDATE script_orders SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
+      db.run(`UPDATE orders SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
+      db.run(`UPDATE topups SET status = 'EXPIRED' WHERE status = 'PENDING' AND casaku_transaction_id = ?`, [invoice_id]);
+      db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, 'expired', null, amount, now]);
+    } else {
+      db.run(`INSERT OR IGNORE INTO casaku_webhook_log (transaction_id, matched_type, matched_id, amount, received_at) VALUES (?, ?, ?, ?, ?)`, [event_id, 'ignored', null, amount, now]);
+    }
+  });
+});
+
+app.get('/', (req, res) => res.send('Bot is running.'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🌐 Webhook server listening on port ${PORT}`));
+bot.launch().then(setupCommandMenu);
+console.log('Bot Telegram Running Full Edition...');
