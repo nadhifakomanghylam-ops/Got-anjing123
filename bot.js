@@ -11,10 +11,10 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 // Kalau admin BELUM set foto lewat menu, atau database ke-reset saat redeploy,
 // bot otomatis pakai link di bawah ini. Ganti sesuai punya kamu (boleh link
 // gambar publik/imgur/dsb, boleh juga file_id Telegram).
-const DEFAULT_QRIS_PHOTO = ''; // contoh: 'https://cdn.phototourl.com/free/2026-08-29-0bc7b073-83d3-48ee-9569-b6d103e971a3.png'
-const DEFAULT_HEADER_PHOTO = ''; // foto banner/header toko, contoh: 'https://cdn.phototourl.com/free/2026-08-29-a0e5f55c-145f-4c6b-9e91-eae94161ac42.png'
-const DEFAULT_STORE_NAME = '🛍️ TOKO DIGITAL FISHIT'; // nama toko default
-const DEFAULT_STORE_DESC = 'Selamat datang di morvane !'; // deskripsi toko default
+const DEFAULT_QRIS_PHOTO = ''; // contoh: 'https://i.imgur.com/xxxxxxx.png'
+const DEFAULT_HEADER_PHOTO = ''; // foto banner/header toko, contoh: 'https://i.imgur.com/yyyyyyy.png'
+const DEFAULT_STORE_NAME = '🛍️ TOKO DIGITAL PREMIUM'; // nama toko default
+const DEFAULT_STORE_DESC = 'Selamat datang di toko kami!'; // deskripsi toko default
 
 const getAdminId = () => {
   const raw = process.env.ADMIN_ID;
@@ -202,6 +202,7 @@ const getMainMenu = (userId) => {
 const getAdminMenu = () => {
   return Markup.inlineKeyboard([
     [Markup.button.callback('📊 Statistik', 'admin_stats'), Markup.button.callback('💾 Backup DB', 'admin_backup')],
+    [Markup.button.callback('📄 Backup bot.js', 'admin_backup_code')],
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
     [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🧾 Set Foto QRIS', 'admin_set_qris_photo')],
@@ -244,10 +245,10 @@ bot.start(async (ctx) => {
   saveUserAndVisitor(ctx);
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
-      const storeName = (store && store.name && store.name.trim() !== '') ? store.name : DEFAULT_STORE_NAME;
-      const storeDesc = (store && store.desc && store.desc.trim() !== '') ? store.desc : DEFAULT_STORE_DESC;
+      const storeName = (DEFAULT_STORE_NAME && DEFAULT_STORE_NAME.trim() !== '') ? DEFAULT_STORE_NAME : (store && store.name ? store.name : '');
+      const storeDesc = (DEFAULT_STORE_DESC && DEFAULT_STORE_DESC.trim() !== '') ? DEFAULT_STORE_DESC : (store && store.desc ? store.desc : '');
       const text = `🏬 *${storeName}*\n\n${storeDesc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
-      const headerPhoto = (store && store.photo) ? store.photo : DEFAULT_HEADER_PHOTO;
+      const headerPhoto = (DEFAULT_HEADER_PHOTO && DEFAULT_HEADER_PHOTO.trim() !== '') ? DEFAULT_HEADER_PHOTO : (store && store.photo ? store.photo : '');
       if (headerPhoto) {
         await ctx.replyWithPhoto(headerPhoto, { caption: text, parse_mode: 'Markdown', ...getStartMenu(store) });
       } else {
@@ -269,10 +270,10 @@ bot.start(async (ctx) => {
 bot.action('main_menu', async (ctx) => {
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
-      const storeName = (store && store.name && store.name.trim() !== '') ? store.name : DEFAULT_STORE_NAME;
-      const storeDesc = (store && store.desc && store.desc.trim() !== '') ? store.desc : DEFAULT_STORE_DESC;
+      const storeName = (DEFAULT_STORE_NAME && DEFAULT_STORE_NAME.trim() !== '') ? DEFAULT_STORE_NAME : (store && store.name ? store.name : '');
+      const storeDesc = (DEFAULT_STORE_DESC && DEFAULT_STORE_DESC.trim() !== '') ? DEFAULT_STORE_DESC : (store && store.desc ? store.desc : '');
       const text = `🏬 *${storeName}*\n\n${storeDesc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
-      const headerPhoto = (store && store.photo) ? store.photo : DEFAULT_HEADER_PHOTO;
+      const headerPhoto = (DEFAULT_HEADER_PHOTO && DEFAULT_HEADER_PHOTO.trim() !== '') ? DEFAULT_HEADER_PHOTO : (store && store.photo ? store.photo : '');
       if (headerPhoto) await safeClearAndSend(ctx, text, { photo: headerPhoto, ...getMainMenu(ctx.from.id) });
       else await safeClearAndSend(ctx, text, getMainMenu(ctx.from.id));
     });
@@ -651,7 +652,7 @@ bot.action(/^paymanual_(.+)_(.+)_(.+)$/, async (ctx) => {
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
     if (err || !prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
     db.get(`SELECT qris FROM store WHERE id = 1`, async (err, store) => {
-      const qrisPhoto = (store && store.qris && store.qris.trim() !== '') ? store.qris : DEFAULT_QRIS_PHOTO;
+      const qrisPhoto = (DEFAULT_QRIS_PHOTO && DEFAULT_QRIS_PHOTO.trim() !== '') ? DEFAULT_QRIS_PHOTO : (store && store.qris ? store.qris : '');
       if (!qrisPhoto || qrisPhoto.trim() === '') {
         return ctx.answerCbQuery('⚠️ Foto QRIS manual belum diatur admin. Gunakan QRIS Otomatis.', { show_alert: true });
       }
@@ -806,6 +807,14 @@ bot.action('admin_backup', async (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   try { await ctx.replyWithDocument({ source: dbPath, filename: 'database.db' }, { caption: '💾 DATABASE BACKUP' }); }
   catch (e) { ctx.reply('❌ Gagal backup.'); }
+});
+
+bot.action('admin_backup_code', async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  try {
+    const now = new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' });
+    await ctx.replyWithDocument({ source: __filename, filename: 'bot.js' }, { caption: `📄 *SOURCE CODE BACKUP*\n\n🕒 ${now}`, parse_mode: 'Markdown' });
+  } catch (e) { ctx.reply('❌ Gagal backup source code: ' + e.message); }
 });
 
 bot.action('admin_edit_store', (ctx) => {
