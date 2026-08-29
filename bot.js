@@ -142,6 +142,60 @@ bot.command('cekid', async (ctx) => {
   await ctx.reply(`🆔 *INFO CHAT*\n\nChat ID: \`${chat.id}\`\nTipe: ${chat.type}`, { parse_mode: 'Markdown' });
 });
 
+bot.command('id', async (ctx) => {
+  const user = ctx.from;
+  await ctx.reply(`👤 *ID TELEGRAM KAMU*\n\nUser ID: \`${user.id}\`\nUsername: ${user.username ? '@' + user.username : '-'}`, { parse_mode: 'Markdown' });
+});
+
+// /setproduk Nama|Harga|Minimal|Varian1,Varian2,Varian3
+// Minimal & Varian boleh dikosongin. Contoh: /setproduk Batu Enchant|15000|2|Api,Es,Racun
+bot.command('setproduk', async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const raw = ctx.message.text.replace(/^\/setproduk(@\S+)?\s*/i, '').trim();
+  if (!raw) {
+    return ctx.reply('📦 *FORMAT /setproduk*\n\n`/setproduk Nama|Harga|Minimal|Varian1,Varian2,Varian3`\n\nContoh:\n`/setproduk Batu Enchant|15000|2|Api,Es,Racun`\n\n_Minimal & Varian boleh dikosongin:_\n`/setproduk Batu Enchant|15000`\n\n⚠️ Stok tetap diisi lewat menu "📦 Tambah Stok" di dashboard admin.', { parse_mode: 'Markdown' });
+  }
+  const parts = raw.split('|').map(p => p.trim());
+  const name = parts[0];
+  const price = parseInt(parts[1]);
+  const minQtyInput = parts[2] ? parseInt(parts[2]) : 1;
+  const variantsRaw = parts[3] || '';
+  if (!name || !price || isNaN(price)) {
+    return ctx.reply('⚠️ Format salah! Contoh:\n`/setproduk Batu Enchant|15000|2|Api,Es,Racun`', { parse_mode: 'Markdown' });
+  }
+  const minQty = (!minQtyInput || isNaN(minQtyInput) || minQtyInput < 1) ? 1 : minQtyInput;
+  db.run(`INSERT INTO products (name, price, min_qty) VALUES (?, ?, ?)`, [name, price, minQty], function (err) {
+    if (err) return ctx.reply('⚠️ Gagal menambah produk.');
+    const parentId = this.lastID;
+    const variants = variantsRaw.split(',').map(v => v.trim()).filter(v => v !== '');
+    let header = `✅ *PRODUK DITAMBAHKAN*\n\n📦 *${name}*\n💰 Harga: Rp${price.toLocaleString('id-ID')}\n🔢 Minimal Beli: ${minQty}\n📊 Stok: 0 (isi lewat menu 📦 Tambah Stok)`;
+    if (variants.length === 0) return ctx.reply(header, { parse_mode: 'Markdown' });
+    let done = 0;
+    variants.forEach(v => {
+      const variantName = `${name} - ${v}`;
+      db.run(`INSERT INTO products (name, price, parent_id, min_qty) VALUES (?, ?, ?, ?)`, [variantName, price, parentId, minQty], () => {
+        done++;
+        if (done === variants.length) {
+          ctx.reply(header + `\n\n🧩 *Varian ditambahkan (harga & min. sama dengan induk, bisa diedit lewat menu):*\n` + variants.map(v2 => `• ${v2}`).join('\n'), { parse_mode: 'Markdown' });
+        }
+      });
+    });
+  });
+});
+
+// /setlagu — kirim langsung sebagai balasan (reply) ke pesan audio, atau ketik command lalu kirim audionya
+bot.command('setlagu', async (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const replied = ctx.message.reply_to_message;
+  if (replied && replied.audio) {
+    db.run(`UPDATE store SET song = ? WHERE id = 1`, [replied.audio.file_id]);
+    return ctx.reply('✅ Lagu berhasil dipasang!');
+  }
+  userState[getAdminId()] = { step: 'SET_SONG' };
+  await ctx.reply('🎵 *SET LAGU*\n\nKirim file audio/musik sekarang buat dipasang jadi lagu toko.\n(Tips: lain kali bisa langsung reply pesan audio dengan `/setlagu` biar sekali jalan)', { parse_mode: 'Markdown' });
+});
+
+
 // Melacak pesan terakhir yang dikirim bot ke tiap user, supaya bisa dihapus
 // walau pesan itu bukan hasil klik tombol (misal setelah user ketik teks bebas).
 const lastBotMsg = {};
@@ -632,8 +686,8 @@ const sendMyOrders = async (ctx) => {
 bot.action('user_my_orders', async (ctx) => { ctx.answerCbQuery(); await sendMyOrders(ctx); });
 bot.command('pesanan', sendMyOrders);
 
-bot.action('user_balance_menu', async (ctx) => {
-  ctx.answerCbQuery();
+const sendBalanceMenu = async (ctx) => {
+  if (ctx.answerCbQuery) ctx.answerCbQuery();
   const userId = ctx.from.id;
   db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], async (err, row) => {
     const tier = row ? (row.tier || 'Bronze') : 'Bronze';
@@ -646,7 +700,9 @@ bot.action('user_balance_menu', async (ctx) => {
       [Markup.button.callback('🔙 Kembali', 'main_menu')]
     ]));
   });
-});
+};
+bot.action('user_balance_menu', sendBalanceMenu);
+bot.command('saldo', sendBalanceMenu);
 bot.action(/^topup_amt_(.+)$/, async (ctx) => { processTopUp(ctx, parseInt(ctx.match[1])); });
 bot.action('user_topup_custom', async (ctx) => {
   ctx.answerCbQuery();
@@ -868,7 +924,6 @@ bot.action(/^paymanual_(.+)_(.+)_(.+)$/, async (ctx) => {
     });
   });
 });
-
 // Bayar via DANA / GoPay — manual, pakai nomor teks yang di-set admin
 const payManualNumber = async (ctx, prodId, qty, discount, methodKey, methodLabel) => {
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
@@ -1804,3 +1859,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🌐 Webhook server listening on port ${PORT}`));
 bot.launch().then(setupCommandMenu);
 console.log('Bot Telegram Running Full Edition...');
+
