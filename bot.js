@@ -1738,23 +1738,4 @@ const relaunchActiveRentals = () => {
 };
 
 bot.launch().then(setupCommandMenu).then(relaunchActiveRentals);
-console.log('Bot Telegram Running Full Edition...');
-// --- TAMBAHAN FITUR SEWA BOT ---
-const activeRentedBots = {};
-
-// Fungsi untuk menyalakan bot sewaan saat user kirim token
-async function launchBuyerBot(userId, token) {
-    try {
-        const { Telegraf } = require('telegraf');
-        const buyerBot = new Telegraf(token);
-        
-        // Fitur di dalam bot sewaan pembeli
-        buyerBot.start((ctx) => ctx.reply('Halo! Bot sewaan Anda sudah aktif.'));
-        
-        await buyerBot.launch();
-        activeRentedBots[userId] = buyerBot;
-        console.log(`Berhasil menyalakan bot untuk user ${userId}`);
-    } catch (err) {
-        console.log(`Gagal menyalakan bot: ${err.message}`);
-    }
-}
+console.log('Bot Telegram Running Full Edition... 
