@@ -7,6 +7,10 @@ const express = require('express');
 const { verifyAutoKuySignature, generateDynamicQRIS } = require('./autokuy');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
+// Username bot buat bikin deep-link (dipakai tombol di /panel grup: Set Welcome, Chat Relay, dll)
+let BOT_USERNAME = '';
+bot.telegram.getMe().then((me) => { BOT_USERNAME = me.username; }).catch(() => {});
+
 // ====== FOTO DEFAULT (HARDCODE) ======
 // Kalau admin BELUM set foto lewat menu, atau database ke-reset saat redeploy,
 // bot otomatis pakai link di bawah ini. Ganti sesuai punya kamu (boleh link
@@ -81,6 +85,12 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS script_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, script_id INTEGER, amount INTEGER, status TEXT DEFAULT 'PENDING', proof TEXT, casaku_transaction_id TEXT, qris_expires_at TEXT, created_at TEXT)`);
   db.run(`ALTER TABLE script_orders ADD COLUMN qris_message_id TEXT`, () => {});
 
+  // ====== FITUR JAGA GRUP ======
+  db.run(`ALTER TABLE groups ADD COLUMN title TEXT`, () => {});
+  db.run(`ALTER TABLE groups ADD COLUMN added_at TEXT`, () => {});
+  db.run(`CREATE TABLE IF NOT EXISTS group_settings ( group_id INTEGER PRIMARY KEY, anti_link INTEGER DEFAULT 0 )`);
+  db.run(`CREATE TABLE IF NOT EXISTS group_buttons ( group_id INTEGER, btn_key TEXT, label TEXT, emoji TEXT, PRIMARY KEY (group_id, btn_key) )`);
+
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
       db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, ?, ?, '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! 🎉', 'Sampai jumpa {user} 👋')`, ['🛍️ TOKO DIGITAL PREMIUM', 'Selamat datang di toko kami!']);
@@ -118,6 +128,47 @@ const checkForceJoin = async (ctx, next) => {
 };
 bot.use(checkForceJoin);
 
+// ====== TRACKING GRUP (biar grup yang ada bot-nya kecatat buat menu "Kelola Grup") ======
+bot.use(async (ctx, next) => {
+  if (ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup')) {
+    const gid = ctx.chat.id;
+    const title = ctx.chat.title || '';
+    db.run(`INSERT OR IGNORE INTO groups (group_id, title, added_at) VALUES (?, ?, ?)`, [gid, title, new Date().toISOString()]);
+    db.run(`UPDATE groups SET title = ? WHERE group_id = ?`, [title, gid]);
+  }
+  return next();
+});
+
+// ====== ANTI-LINK ======
+const LINK_REGEX = /(https?:\/\/|t\.me\/|telegram\.me\/|www\.\S+\.\w)/i;
+bot.use(async (ctx, next) => {
+  if (ctx.chat && (ctx.chat.type === 'group' || ctx.chat.type === 'supergroup') && ctx.message && ctx.message.text) {
+    const gid = ctx.chat.id;
+    if (LINK_REGEX.test(ctx.message.text)) {
+      const setting = await new Promise((resolve) => db.get(`SELECT anti_link FROM group_settings WHERE group_id = ?`, [gid], (e, r) => resolve(r)));
+      if (setting && setting.anti_link) {
+        let allowed = Number(ctx.from.id) === getAdminId();
+        if (!allowed) {
+          try {
+            const member = await ctx.telegram.getChatMember(gid, ctx.from.id);
+            allowed = ['creator', 'administrator'].includes(member.status);
+          } catch (e) {}
+        }
+        if (!allowed) {
+          try { await ctx.deleteMessage(); } catch (e) {}
+          try {
+            const name = ctx.from.first_name || 'Member';
+            const warn = await ctx.reply(`🚫 [${name}](tg://user?id=${ctx.from.id}), dilarang kirim link di grup ini!`, { parse_mode: 'Markdown' });
+            setTimeout(() => ctx.telegram.deleteMessage(gid, warn.message_id).catch(() => {}), 6000);
+          } catch (e) {}
+          return; // stop di sini, jangan lanjut ke handler lain
+        }
+      }
+    }
+  }
+  return next();
+});
+
 // WELCOME & LEAVE GROUP
 bot.on('new_chat_members', (ctx) => {
   db.get(`SELECT welcome_msg FROM store WHERE id = 1`, (err, store) => {
@@ -145,6 +196,83 @@ bot.command('cekid', async (ctx) => {
 bot.command('id', async (ctx) => {
   const user = ctx.from;
   await ctx.reply(`👤 *ID TELEGRAM KAMU*\n\nUser ID: \`${user.id}\`\nUsername: ${user.username ? '@' + user.username : '-'}`, { parse_mode: 'Markdown' });
+});
+
+// ====== HELPER & COMMAND MODERASI GRUP ======
+const isGroupAllowed = async (ctx) => {
+  if (Number(ctx.from.id) === getAdminId()) return true;
+  try {
+    const member = await ctx.telegram.getChatMember(ctx.chat.id, ctx.from.id);
+    return ['creator', 'administrator'].includes(member.status);
+  } catch (e) { return false; }
+};
+
+const requireGroupAdmin = async (ctx) => {
+  if (!ctx.chat || (ctx.chat.type !== 'group' && ctx.chat.type !== 'supergroup')) {
+    await ctx.reply('⚠️ Perintah ini cuma bisa dipakai di dalam grup.');
+    return false;
+  }
+  if (!(await isGroupAllowed(ctx))) {
+    await ctx.reply('⚠️ Cuma admin grup yang bisa pakai perintah ini.');
+    return false;
+  }
+  if (!ctx.message.reply_to_message) {
+    await ctx.reply('⚠️ Reply ke pesan member yang mau di-aksi dulu, baru ketik perintahnya.');
+    return false;
+  }
+  return true;
+};
+
+const gmAction = async (fn) => { try { await fn(); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } };
+const RESTRICT_OFF = { can_send_messages: false, can_send_audios: false, can_send_documents: false, can_send_photos: false, can_send_videos: false, can_send_video_notes: false, can_send_voice_notes: false, can_send_polls: false, can_send_other_messages: false, can_add_web_page_previews: false };
+const RESTRICT_ON = { can_send_messages: true, can_send_audios: true, can_send_documents: true, can_send_photos: true, can_send_videos: true, can_send_video_notes: true, can_send_voice_notes: true, can_send_polls: true, can_send_other_messages: true, can_add_web_page_previews: true };
+const doMute = (groupId, targetId) => gmAction(() => bot.telegram.restrictChatMember(groupId, targetId, { permissions: RESTRICT_OFF }));
+const doUnmute = (groupId, targetId) => gmAction(() => bot.telegram.restrictChatMember(groupId, targetId, { permissions: RESTRICT_ON }));
+const doKick = (groupId, targetId) => gmAction(async () => { await bot.telegram.banChatMember(groupId, targetId); await bot.telegram.unbanChatMember(groupId, targetId, { only_if_banned: true }); });
+const doPromote = (groupId, targetId) => gmAction(() => bot.telegram.promoteChatMember(groupId, targetId, { can_delete_messages: true, can_invite_users: true, can_restrict_members: true, can_pin_messages: true, can_manage_video_chats: true }));
+const doDemote = (groupId, targetId) => gmAction(() => bot.telegram.promoteChatMember(groupId, targetId, { can_change_info: false, can_delete_messages: false, can_invite_users: false, can_restrict_members: false, can_pin_messages: false, can_promote_members: false, can_manage_video_chats: false }));
+const doPin = (groupId, msgId) => gmAction(() => bot.telegram.pinChatMessage(groupId, msgId));
+
+bot.command('mute', async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const r = await doMute(ctx.chat.id, ctx.message.reply_to_message.from.id);
+  ctx.reply(r.ok ? '🔇 Member berhasil di-mute.' : `⚠️ Gagal mute: ${r.error}`);
+});
+bot.command('unmute', async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const r = await doUnmute(ctx.chat.id, ctx.message.reply_to_message.from.id);
+  ctx.reply(r.ok ? '🔊 Member berhasil di-unmute.' : `⚠️ Gagal unmute: ${r.error}`);
+});
+bot.command('kick', async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const r = await doKick(ctx.chat.id, ctx.message.reply_to_message.from.id);
+  ctx.reply(r.ok ? '👢 Member berhasil dikeluarkan.' : `⚠️ Gagal kick: ${r.error}`);
+});
+bot.command('promote', async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const r = await doPromote(ctx.chat.id, ctx.message.reply_to_message.from.id);
+  ctx.reply(r.ok ? '⭐ Member dijadikan admin.' : `⚠️ Gagal jadikan admin: ${r.error}`);
+});
+bot.command('demote', async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const r = await doDemote(ctx.chat.id, ctx.message.reply_to_message.from.id);
+  ctx.reply(r.ok ? '⬇️ Admin berhasil dicopot.' : `⚠️ Gagal copot admin: ${r.error}`);
+});
+bot.command('pin', async (ctx) => {
+  if (!(await requireGroupAdmin(ctx))) return;
+  const r = await doPin(ctx.chat.id, ctx.message.reply_to_message.message_id);
+  ctx.reply(r.ok ? '📌 Pesan berhasil disemat.' : `⚠️ Gagal semat: ${r.error}`);
+});
+bot.command('unpin', async (ctx) => {
+  if (!ctx.chat || (ctx.chat.type !== 'group' && ctx.chat.type !== 'supergroup')) return ctx.reply('⚠️ Perintah ini cuma buat di grup.');
+  if (!(await isGroupAllowed(ctx))) return ctx.reply('⚠️ Cuma admin grup yang bisa pakai perintah ini.');
+  const r = await gmAction(() => bot.telegram.unpinChatMessage(ctx.chat.id));
+  ctx.reply(r.ok ? '📍 Pesan yang disemat sudah dilepas.' : `⚠️ Gagal: ${r.error}`);
+});
+bot.command('stoprelay', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  delete userState[getAdminId()];
+  ctx.reply('✅ Mode chat relay dihentikan.');
 });
 
 // /setproduk Nama|Harga|Minimal|Varian1,Varian2,Varian3
@@ -341,9 +469,178 @@ const getAdminMenu = () => {
     [Markup.button.callback('👤 Kelola Saldo/Tier User', 'admin_manage_user')],
     [Markup.button.callback('📢 Broadcast Chat', 'admin_broadcast_menu'), Markup.button.callback('🔗 Broadcast + Button', 'admin_bc_button')],
     [Markup.button.callback('📦 Jual Script Bot', 'admin_script_menu')],
+    [Markup.button.callback('🛡️ Kelola Grup', 'admin_group_list')],
     [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
   ]);
 };
+
+// ====== TOMBOL PANEL GRUP YANG BISA DIATUR NAMA & EMOJI-NYA ======
+const DEFAULT_GROUP_BUTTONS = {
+  antilink: { emoji: '🔗', label: 'Anti Link' },
+  mute: { emoji: '🔇', label: 'Mute' },
+  unmute: { emoji: '🔊', label: 'Unmute' },
+  kick: { emoji: '👢', label: 'Kick' },
+  promote: { emoji: '⭐', label: 'Jadikan Admin' },
+  demote: { emoji: '⬇️', label: 'Copot Admin' },
+  pin: { emoji: '📌', label: 'Semat Pesan' },
+  welcome: { emoji: '👋', label: 'Set Welcome' },
+  leave: { emoji: '🚪', label: 'Set Leave' },
+  relay: { emoji: '💬', label: 'Chat via Bot' },
+  customize: { emoji: '🎨', label: 'Atur Tombol' }
+};
+const GROUP_BTN_KEYS = Object.keys(DEFAULT_GROUP_BUTTONS);
+
+const getGroupButtons = (groupId, cb) => {
+  db.all(`SELECT btn_key, label, emoji FROM group_buttons WHERE group_id = ?`, [groupId], (err, rows) => {
+    const map = {};
+    GROUP_BTN_KEYS.forEach(k => { map[k] = { ...DEFAULT_GROUP_BUTTONS[k] }; });
+    (rows || []).forEach(r => { if (map[r.btn_key]) map[r.btn_key] = { emoji: r.emoji || map[r.btn_key].emoji, label: r.label || map[r.btn_key].label }; });
+    cb(map);
+  });
+};
+const btnText = (btns, key) => `${btns[key].emoji} ${btns[key].label}`;
+
+const sendCustomizeButtonsMenu = (ctx, groupId) => {
+  getGroupButtons(groupId, (btns) => {
+    const buttons = GROUP_BTN_KEYS.map(k => [Markup.button.callback(`${btns[k].emoji} ${btns[k].label}`, `editbtn_${groupId}_${k}`)]);
+    buttons.push([Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]);
+    safeClearAndSend(ctx, `🎨 *ATUR TOMBOL PANEL GRUP*\n\nGrup: \`${groupId}\`\n\nPilih tombol yang mau diubah nama/emoji-nya:`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+};
+
+// ====== PANEL ADMIN GRUP (tombol inline, dipakai di dalam grup) ======
+const buildGroupPanelKeyboard = (btns, groupId, targetId, targetMsgId, antiLinkOn) => {
+  const t = targetId || 0;
+  const m = targetMsgId || 0;
+  const rows = [];
+  rows.push([Markup.button.callback(`${antiLinkOn ? '✅' : '⬜'} ${btnText(btns, 'antilink')}`, `gtoggleantilink_${groupId}_${t}_${m}`)]);
+  if (targetId) {
+    rows.push([Markup.button.callback(btnText(btns, 'mute'), `gmute_${groupId}_${targetId}`), Markup.button.callback(btnText(btns, 'unmute'), `gunmute_${groupId}_${targetId}`)]);
+    rows.push([Markup.button.callback(btnText(btns, 'kick'), `gkick_${groupId}_${targetId}`)]);
+    rows.push([Markup.button.callback(btnText(btns, 'promote'), `gpromote_${groupId}_${targetId}`), Markup.button.callback(btnText(btns, 'demote'), `gdemote_${groupId}_${targetId}`)]);
+  }
+  if (targetMsgId) rows.push([Markup.button.callback(btnText(btns, 'pin'), `gpin_${groupId}_${targetMsgId}`)]);
+  if (BOT_USERNAME) {
+    rows.push([Markup.button.url(btnText(btns, 'welcome'), `https://t.me/${BOT_USERNAME}?start=setwelcome`), Markup.button.url(btnText(btns, 'leave'), `https://t.me/${BOT_USERNAME}?start=setleave`)]);
+    rows.push([Markup.button.url(btnText(btns, 'relay'), `https://t.me/${BOT_USERNAME}?start=relay_${groupId}`), Markup.button.url(btnText(btns, 'customize'), `https://t.me/${BOT_USERNAME}?start=customtombol_${groupId}`)]);
+  }
+  return Markup.inlineKeyboard(rows);
+};
+
+const renderGroupPanel = async (ctx, groupId, targetId, targetMsgId) => {
+  const gs = await new Promise((resolve) => db.get(`SELECT anti_link FROM group_settings WHERE group_id = ?`, [groupId], (e, r) => resolve(r)));
+  getGroupButtons(groupId, (btns) => {
+    const header = targetId ? `🛡️ *PANEL ADMIN GRUP*\n\n🎯 Target ID: \`${targetId}\`` : `🛡️ *PANEL ADMIN GRUP*\n\n_Reply pesan member buat aksi mute/kick/promote/pin ke dia._`;
+    ctx.editMessageText(header, { parse_mode: 'Markdown', ...buildGroupPanelKeyboard(btns, groupId, targetId, targetMsgId, gs && gs.anti_link) }).catch(() => {});
+  });
+};
+
+bot.command(['panel', 'gpanel'], async (ctx) => {
+  if (!ctx.chat || (ctx.chat.type !== 'group' && ctx.chat.type !== 'supergroup')) {
+    return ctx.reply('⚠️ Perintah ini cuma bisa dipakai di dalam grup.');
+  }
+  if (!(await isGroupAllowed(ctx))) return ctx.reply('⚠️ Cuma admin grup yang bisa buka panel ini.');
+  const groupId = ctx.chat.id;
+  const targetId = ctx.message.reply_to_message ? ctx.message.reply_to_message.from.id : null;
+  const targetMsgId = ctx.message.reply_to_message ? ctx.message.reply_to_message.message_id : null;
+  db.get(`SELECT anti_link FROM group_settings WHERE group_id = ?`, [groupId], (err, gs) => {
+    getGroupButtons(groupId, (btns) => {
+      const header = targetId ? `🛡️ *PANEL ADMIN GRUP*\n\n🎯 Target ID: \`${targetId}\`` : `🛡️ *PANEL ADMIN GRUP*\n\n_Reply pesan member buat aksi mute/kick/promote/pin ke dia._`;
+      ctx.reply(header, { parse_mode: 'Markdown', ...buildGroupPanelKeyboard(btns, groupId, targetId, targetMsgId, gs && gs.anti_link) });
+    });
+  });
+});
+
+bot.action(/^gtoggleantilink_(-?\d+)_(\d+)_(\d+)$/, async (ctx) => {
+  const [, groupId, t, m] = ctx.match;
+  if (!(await isGroupAllowed(ctx))) return ctx.answerCbQuery('⚠️ Bukan admin.', { show_alert: true });
+  db.get(`SELECT anti_link FROM group_settings WHERE group_id = ?`, [groupId], (err, row) => {
+    const newVal = row && row.anti_link ? 0 : 1;
+    db.run(`INSERT INTO group_settings (group_id, anti_link) VALUES (?, ?) ON CONFLICT(group_id) DO UPDATE SET anti_link = excluded.anti_link`, [groupId, newVal], () => {
+      ctx.answerCbQuery(newVal ? '✅ Anti-Link diaktifkan.' : '⬜ Anti-Link dimatikan.');
+      renderGroupPanel(ctx, groupId, t === '0' ? null : t, m === '0' ? null : m);
+    });
+  });
+});
+bot.action(/^gmute_(-?\d+)_(\d+)$/, async (ctx) => {
+  if (!(await isGroupAllowed(ctx))) return ctx.answerCbQuery('⚠️ Bukan admin.', { show_alert: true });
+  const r = await doMute(ctx.match[1], ctx.match[2]);
+  ctx.answerCbQuery(r.ok ? '🔇 Member berhasil di-mute.' : `⚠️ Gagal: ${r.error}`, { show_alert: true });
+});
+bot.action(/^gunmute_(-?\d+)_(\d+)$/, async (ctx) => {
+  if (!(await isGroupAllowed(ctx))) return ctx.answerCbQuery('⚠️ Bukan admin.', { show_alert: true });
+  const r = await doUnmute(ctx.match[1], ctx.match[2]);
+  ctx.answerCbQuery(r.ok ? '🔊 Member berhasil di-unmute.' : `⚠️ Gagal: ${r.error}`, { show_alert: true });
+});
+bot.action(/^gkick_(-?\d+)_(\d+)$/, async (ctx) => {
+  if (!(await isGroupAllowed(ctx))) return ctx.answerCbQuery('⚠️ Bukan admin.', { show_alert: true });
+  const r = await doKick(ctx.match[1], ctx.match[2]);
+  ctx.answerCbQuery(r.ok ? '👢 Member berhasil dikeluarkan.' : `⚠️ Gagal: ${r.error}`, { show_alert: true });
+});
+bot.action(/^gpromote_(-?\d+)_(\d+)$/, async (ctx) => {
+  if (!(await isGroupAllowed(ctx))) return ctx.answerCbQuery('⚠️ Bukan admin.', { show_alert: true });
+  const r = await doPromote(ctx.match[1], ctx.match[2]);
+  ctx.answerCbQuery(r.ok ? '⭐ Member dijadikan admin.' : `⚠️ Gagal: ${r.error}`, { show_alert: true });
+});
+bot.action(/^gdemote_(-?\d+)_(\d+)$/, async (ctx) => {
+  if (!(await isGroupAllowed(ctx))) return ctx.answerCbQuery('⚠️ Bukan admin.', { show_alert: true });
+  const r = await doDemote(ctx.match[1], ctx.match[2]);
+  ctx.answerCbQuery(r.ok ? '⬇️ Admin dicopot.' : `⚠️ Gagal: ${r.error}`, { show_alert: true });
+});
+bot.action(/^gpin_(-?\d+)_(\d+)$/, async (ctx) => {
+  if (!(await isGroupAllowed(ctx))) return ctx.answerCbQuery('⚠️ Bukan admin.', { show_alert: true });
+  const r = await doPin(ctx.match[1], ctx.match[2]);
+  ctx.answerCbQuery(r.ok ? '📌 Pesan berhasil disemat.' : `⚠️ Gagal: ${r.error}`, { show_alert: true });
+});
+bot.action(/^editbtn_(-?\d+)_(\w+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const [, groupId, key] = ctx.match;
+  userState[getAdminId()] = { step: 'EDIT_GROUP_BTN', groupId, key };
+  ctx.answerCbQuery();
+  ctx.reply(`✍️ Kirim *emoji* dan *nama* baru buat tombol ini, dipisah spasi.\n\nContoh: \`🔒 Anti Link Aktif\``, { parse_mode: 'Markdown' });
+});
+
+// ====== KELOLA GRUP DARI DASHBOARD ADMIN (chat pribadi bot) ======
+bot.action('admin_group_list', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM groups ORDER BY added_at DESC`, (err, rows) => {
+    if (!rows || rows.length === 0) return safeClearAndSend(ctx, '⚠️ Bot belum tercatat ada di grup manapun.\n\nUndang bot ke grup dulu, lalu kirim 1 pesan apa saja di grup itu supaya kecatat.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]]));
+    const buttons = rows.map(g => [Markup.button.callback(`👥 ${g.title || g.group_id}`, `grouppick_${g.group_id}`)]);
+    buttons.push([Markup.button.callback('🔙 Dashboard Admin', 'admin_dashboard')]);
+    safeClearAndSend(ctx, '🛡️ *KELOLA GRUP*\n\nPilih grup:\n\n_Untuk mute/kick/promote member tertentu, ketik_ `/panel` _di dalam grup sebagai balasan (reply) ke pesan member itu._', { parse_mode: 'Markdown', ...Markup.inlineKeyboard(buttons) });
+  });
+});
+bot.action(/^grouppick_(-?\d+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const groupId = ctx.match[1];
+  safeClearAndSend(ctx, `👥 *GRUP:* \`${groupId}\`\n\nPilih aksi:`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([
+    [Markup.button.callback('🔗 Toggle Anti-Link', `gtoggleantilink2_${groupId}`)],
+    [Markup.button.callback('💬 Aktifkan Chat Relay', `startrelay_${groupId}`)],
+    [Markup.button.callback('🎨 Atur Tombol Panel', `customtombol2_${groupId}`)],
+    [Markup.button.callback('🔙 Daftar Grup', 'admin_group_list')]
+  ]) });
+});
+bot.action(/^gtoggleantilink2_(-?\d+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const groupId = ctx.match[1];
+  db.get(`SELECT anti_link FROM group_settings WHERE group_id = ?`, [groupId], (err, row) => {
+    const newVal = row && row.anti_link ? 0 : 1;
+    db.run(`INSERT INTO group_settings (group_id, anti_link) VALUES (?, ?) ON CONFLICT(group_id) DO UPDATE SET anti_link = excluded.anti_link`, [groupId, newVal], () => {
+      safeClearAndSend(ctx, newVal ? '✅ Anti-Link diaktifkan untuk grup ini.' : '⬜ Anti-Link dimatikan untuk grup ini.', Markup.inlineKeyboard([[Markup.button.callback('🔙 Kembali', `grouppick_${groupId}`)]]));
+    });
+  });
+});
+bot.action(/^startrelay_(-?\d+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  const groupId = ctx.match[1];
+  userState[getAdminId()] = { step: 'RELAY_ACTIVE', groupId };
+  safeClearAndSend(ctx, `💬 *MODE CHAT RELAY AKTIF*\n\nSemua pesan yang kamu ketik ke bot sekarang diteruskan ke grup \`${groupId}\`.\n\nKetik /stoprelay untuk berhenti.`, { parse_mode: 'Markdown' });
+});
+bot.action(/^customtombol2_(-?\d+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  ctx.answerCbQuery();
+  sendCustomizeButtonsMenu(ctx, ctx.match[1]);
+});
 
 const buildJoinUrl = (raw) => {
   if (!raw || !String(raw).trim()) return null;
@@ -381,6 +678,27 @@ const sendStoreSong = async (ctx, store) => {
 
 // === START COMMAND (AUTO KIRIM LAGU) ===
 bot.start(async (ctx) => {
+  // Payload deep-link dari tombol Panel Grup (Set Welcome/Leave, Chat Relay, Atur Tombol)
+  const payload = (ctx.message.text.split(' ')[1] || '').trim();
+  if (payload && Number(ctx.from.id) === getAdminId()) {
+    if (payload === 'setwelcome') {
+      userState[getAdminId()] = { step: 'SET_WELCOME_MSG' };
+      return ctx.reply('👋 Kirim pesan *Welcome* baru:\n\n_Gunakan {user} untuk menyebut nama member._', { parse_mode: 'Markdown' });
+    }
+    if (payload === 'setleave') {
+      userState[getAdminId()] = { step: 'SET_LEAVE_MSG' };
+      return ctx.reply('🚪 Kirim pesan *Leave* baru:\n\n_Gunakan {user} untuk menyebut nama member._', { parse_mode: 'Markdown' });
+    }
+    if (payload.startsWith('relay_')) {
+      const groupId = payload.replace('relay_', '');
+      userState[getAdminId()] = { step: 'RELAY_ACTIVE', groupId };
+      return ctx.reply(`💬 *MODE CHAT RELAY AKTIF*\n\nSemua pesan yang kamu ketik ke bot sekarang diteruskan ke grup \`${groupId}\`.\n\nKetik /stoprelay untuk berhenti.`, { parse_mode: 'Markdown' });
+    }
+    if (payload.startsWith('customtombol_')) {
+      const groupId = payload.replace('customtombol_', '');
+      return sendCustomizeButtonsMenu(ctx, groupId);
+    }
+  }
   saveUserAndVisitor(ctx);
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
@@ -1482,7 +1800,15 @@ bot.on('text', async (ctx) => {
     }
   }
 
-  // 2. USER MENGIRIM PESAN CS
+  // 2. MODE CHAT RELAY: pesan admin ke bot diteruskan ke grup tujuan
+  if (Number(userId) === adminId && state && state.step === 'RELAY_ACTIVE') {
+    bot.telegram.sendMessage(state.groupId, ctx.message.text)
+      .then(() => ctx.reply('✅ Terkirim ke grup.'))
+      .catch((e) => ctx.reply(`⚠️ Gagal kirim ke grup: ${e.message}`));
+    return;
+  }
+
+  // 3. USER MENGIRIM PESAN CS
   if (state && state.step === 'CS_CHAT') {
     const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
     const relayText = `📞 *PESAN CS DARI BUYER*\n👤 ${buyerName} (ID: \`${userId}\`)\n\n${ctx.message.text}\n\n_↩️ Reply pesan ini untuk membalas ke buyer._`;
@@ -1497,7 +1823,7 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // 3. AUTO REPLY BIASA
+  // 4. AUTO REPLY BIASA
   if (!state) {
     const textMsg = ctx.message.text.trim().toLowerCase();
     db.get(`SELECT * FROM auto_reply WHERE LOWER(keyword) = ?`, [textMsg], (err, ar) => {
@@ -1509,7 +1835,7 @@ bot.on('text', async (ctx) => {
     return;
   }
 
-  // 4. HANDLER TEXT LAINNYA (SEARCH, VOUCHER, TOPUP, ADMIN SETTINGS)
+  // 5. HANDLER TEXT LAINNYA (SEARCH, VOUCHER, TOPUP, ADMIN SETTINGS)
   if (state.step === 'SEARCH_PRODUCT') {
     const keyword = ctx.message.text.trim();
     delete userState[ctx.from.id];
@@ -1636,6 +1962,14 @@ bot.on('text', async (ctx) => {
       db.run(`UPDATE store SET leave_msg = ? WHERE id = 1`, [ctx.message.text.trim()]);
       delete userState[adminId];
       safeClearAndSend(ctx, '✅ Leave diperbarui!');
+    } else if (state.step === 'EDIT_GROUP_BTN') {
+      const raw = ctx.message.text.trim();
+      const parts = raw.split(' ');
+      const emoji = parts.shift();
+      const label = parts.join(' ').trim() || (DEFAULT_GROUP_BUTTONS[state.key] ? DEFAULT_GROUP_BUTTONS[state.key].label : state.key);
+      db.run(`INSERT INTO group_buttons (group_id, btn_key, label, emoji) VALUES (?, ?, ?, ?) ON CONFLICT(group_id, btn_key) DO UPDATE SET label = excluded.label, emoji = excluded.emoji`, [state.groupId, state.key, label, emoji]);
+      delete userState[adminId];
+      safeClearAndSend(ctx, `✅ Tombol diperbarui jadi: ${emoji} ${label}`, { parse_mode: 'Markdown' });
     } else if (state.step === 'SET_ADMIN_UNAME') {
       db.run(`UPDATE store SET admin_uname = ? WHERE id = 1`, [ctx.message.text.trim()]);
       delete userState[adminId];
