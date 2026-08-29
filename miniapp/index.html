@@ -12,7 +12,10 @@
 
     <!-- HEADER -->
     <header class="app-header">
-      <img id="storePhoto" class="store-photo" src="" alt="" style="display:none" />
+      <div class="store-avatar" id="storeAvatar">
+        <img id="storePhoto" class="store-photo" src="" alt="" style="display:none" />
+        <span id="storeInitial">🛍️</span>
+      </div>
       <div class="store-info">
         <h1 id="storeName">Memuat...</h1>
         <p id="storeDesc"></p>
@@ -34,12 +37,12 @@
       <!-- HOME -->
       <section class="view" id="view-home">
         <div class="quick-grid">
-          <button class="quick-btn" data-nav="katalog">🛒<span>Katalog</span></button>
-          <button class="quick-btn" data-nav="pesanan">📦<span>Pesanan</span></button>
-          <button class="quick-btn" data-nav="saldo">💳<span>Top Up</span></button>
-          <button class="quick-btn" data-nav="referral">🔗<span>Referral</span></button>
-          <button class="quick-btn" data-nav="stok">📊<span>Stok Live</span></button>
-          <button class="quick-btn" id="btnCS">📞<span>CS</span></button>
+          <button class="quick-btn" data-nav="katalog" data-color="blue"><span class="icon-circle">🛒</span><span>Katalog</span></button>
+          <button class="quick-btn" data-nav="pesanan" data-color="amber"><span class="icon-circle">📦</span><span>Pesanan</span></button>
+          <button class="quick-btn" data-nav="saldo" data-color="green"><span class="icon-circle">💳</span><span>Top Up</span></button>
+          <button class="quick-btn" data-nav="referral" data-color="purple"><span class="icon-circle">🔗</span><span>Referral</span></button>
+          <button class="quick-btn" data-nav="stok" data-color="cyan"><span class="icon-circle">📊</span><span>Stok Live</span></button>
+          <button class="quick-btn" id="btnCS" data-color="pink"><span class="icon-circle">📞</span><span>CS</span></button>
         </div>
       </section>
 
