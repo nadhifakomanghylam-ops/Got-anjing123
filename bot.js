@@ -2308,6 +2308,86 @@ app.get('/api/stock-live', requireTelegramAuth, (req, res) => {
     res.json(rows || []);
   });
 });
+
+// ====== CHECKOUT QRIS OTOMATIS (langsung dari Mini App) ======
+app.post('/api/checkout/product', requireTelegramAuth, async (req, res) => {
+  const prodId = req.body.prodId;
+  const qty = parseInt(req.body.qty) || 1;
+  const discount = parseInt(req.body.discount) || 0;
+  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], (err, prod) => {
+    if (err || !prod) return res.status(404).json({ error: 'Produk tidak ditemukan.' });
+    db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [prodId], async (err2, stockRow) => {
+      const available = stockRow ? stockRow.stock_count : 0;
+      const minQty = prod.min_qty || 1;
+      if (available <= 0) return res.status(400).json({ error: `Stok ${prod.name} habis.` });
+      if (qty < minQty) return res.status(400).json({ error: `Minimal beli produk ini ${minQty}.` });
+      if (qty > available) return res.status(400).json({ error: `Stok cuma ${available}.` });
+      const basePrice = Math.max(1000, (prod.price * qty) - discount);
+      const feeAmount = Math.ceil(basePrice * QRIS_AUTO_FEE_PERCENT / 100);
+      const amountToPay = basePrice + feeAmount;
+      const username = req.tgUser.username ? `@${req.tgUser.username}` : (req.tgUser.first_name || 'Buyer');
+      try {
+        const qris = await generateDynamicQRIS(amountToPay, 'ORD', { name: username, phone: String(req.tgUser.id) });
+        const now = new Date().toISOString();
+        db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
+          [req.tgUser.id, username, prodId, qty, discount, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (dbErr) {
+            if (dbErr) return res.status(500).json({ error: 'Gagal membuat pesanan.' });
+            res.json({
+              orderId: this.lastID,
+              productName: prod.name,
+              qty, basePrice, feeAmount,
+              totalAmount: qris.totalAmount,
+              transactionId: qris.transactionId,
+              expiresAt: qris.expiresAt,
+              qrisImage: `data:image/png;base64,${qris.imageBuffer.toString('base64')}`
+            });
+          });
+      } catch (e) {
+        res.status(500).json({ error: `Gagal membuat QRIS: ${e.message}` });
+      }
+    });
+  });
+});
+
+app.post('/api/checkout/topup', requireTelegramAuth, async (req, res) => {
+  const amount = parseInt(req.body.amount);
+  if (!Number.isInteger(amount) || amount < MIN_TOPUP || amount > 10000000) {
+    return res.status(400).json({ error: `Nominal harus Rp${MIN_TOPUP.toLocaleString('id-ID')}–Rp10.000.000.` });
+  }
+  const username = req.tgUser.username ? `@${req.tgUser.username}` : (req.tgUser.first_name || 'User');
+  try {
+    const qris = await generateDynamicQRIS(amount, 'TOPUP', { name: username, phone: String(req.tgUser.id) });
+    const now = new Date().toISOString();
+    db.run(`INSERT INTO topups (user_id, username, amount, unique_code, total_amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+      [req.tgUser.id, username, amount, qris.uniqueCode, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (dbErr) {
+        if (dbErr) return res.status(500).json({ error: 'Gagal membuat topup.' });
+        res.json({
+          topupId: this.lastID,
+          amount,
+          totalAmount: qris.totalAmount,
+          transactionId: qris.transactionId,
+          expiresAt: qris.expiresAt,
+          qrisImage: `data:image/png;base64,${qris.imageBuffer.toString('base64')}`
+        });
+      });
+  } catch (e) {
+    res.status(500).json({ error: `Gagal membuat QRIS: ${e.message}` });
+  }
+});
+
+app.get('/api/order-status/:id', requireTelegramAuth, (req, res) => {
+  db.get(`SELECT id, status, user_id FROM orders WHERE id = ?`, [req.params.id], (err, row) => {
+    if (!row || Number(row.user_id) !== Number(req.tgUser.id)) return res.status(404).json({ error: 'Not found' });
+    res.json({ status: row.status });
+  });
+});
+
+app.get('/api/topup-status/:id', requireTelegramAuth, (req, res) => {
+  db.get(`SELECT id, status, user_id FROM topups WHERE id = ?`, [req.params.id], (err, row) => {
+    if (!row || Number(row.user_id) !== Number(req.tgUser.id)) return res.status(404).json({ error: 'Not found' });
+    res.json({ status: row.status });
+  });
+});
 // ====================================================================
 
 const PORT = process.env.PORT || 3000;
