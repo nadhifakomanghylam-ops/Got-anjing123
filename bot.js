@@ -16,6 +16,14 @@ const DEFAULT_HEADER_PHOTO = ''; // foto banner/header toko, contoh: 'https://i.
 const DEFAULT_STORE_NAME = ''; // nama toko default (kosongkan biar ikut Nama Toko yang diatur admin di dashboard)
 const DEFAULT_STORE_DESC = ''; // deskripsi toko default (kosongkan biar ikut Deskripsi yang diatur admin di dashboard)
 
+// ====== FEE QRIS OTOMATIS ======
+// Fee tambahan (%) khusus buat QRIS Otomatis, biar user lebih milih DANA/GoPay/QRIS Manual.
+// Fee ini otomatis ditambahin ke total tagihan tiap kali user bayar pakai QRIS Otomatis.
+const QRIS_AUTO_FEE_PERCENT = 8;
+
+// ====== MINIMAL TOP UP SALDO ======
+const MIN_TOPUP = 1000;
+
 const getAdminId = () => {
   const raw = process.env.ADMIN_ID;
   if (!raw) return 0;
@@ -54,6 +62,7 @@ db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS groups (group_id INTEGER PRIMARY KEY)`);
   db.run(`CREATE TABLE IF NOT EXISTS products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, photo TEXT DEFAULT '', note TEXT DEFAULT '')`);
   db.run(`ALTER TABLE products ADD COLUMN parent_id INTEGER`, () => {});
+  db.run(`ALTER TABLE products ADD COLUMN min_qty INTEGER DEFAULT 1`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS orders ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, product_id INTEGER, quantity INTEGER DEFAULT 1, status TEXT, proof TEXT, discount INTEGER DEFAULT 0, amount INTEGER DEFAULT 0, created_at TEXT, casaku_transaction_id TEXT, qris_expires_at TEXT )`);
   db.run(`ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1`, () => {});
   db.run(`ALTER TABLE orders ADD COLUMN casaku_transaction_id TEXT`, () => {});
@@ -265,6 +274,7 @@ const getAdminMenu = () => {
     [Markup.button.callback('📄 Backup bot.js', 'admin_backup_code')],
     [Markup.button.callback('➕ Tambah Produk', 'admin_add_prod'), Markup.button.callback('🗑️ Hapus Produk', 'admin_del_prod')],
     [Markup.button.callback('🧩 Tambah Varian', 'admin_add_variant')],
+    [Markup.button.callback('🔢 Set Minimal Beli', 'admin_set_minqty')],
     [Markup.button.callback('📦 Tambah Stok (Massal)', 'admin_add_stock'), Markup.button.callback('✏️ Edit Info Toko', 'admin_edit_store')],
     [Markup.button.callback('🖼️ Ganti Foto Header', 'admin_set_header_photo'), Markup.button.callback('🧾 Set Foto QRIS', 'admin_set_qris_photo')],
     [Markup.button.callback('🅳 Set Nomor DANA', 'admin_set_dana'), Markup.button.callback('🅶 Set Nomor GoPay', 'admin_set_gopay')],
@@ -370,11 +380,11 @@ bot.action('user_script_menu', async (ctx) => {
       return safeClearAndSend(ctx, text, Markup.inlineKeyboard([[Markup.button.callback('🔙 Menu Utama', 'main_menu')]]));
     }
     const buttons = [
-      [Markup.button.callback('💳 Bayar via QRIS (Otomatis)', `script_pay_qris_1`)],
-      [Markup.button.callback('🧾 Bayar QRIS Manual', `script_pay_manual_1`)],
-      [Markup.button.callback('🅳 Bayar via DANA', `script_pay_dana_1`)],
-      [Markup.button.callback('🅶 Bayar via GoPay', `script_pay_gopay_1`)],
+      [Markup.button.callback('🅳 Bayar via DANA 👍', `script_pay_dana_1`)],
+      [Markup.button.callback('🅶 Bayar via GoPay 👍', `script_pay_gopay_1`)],
+      [Markup.button.callback('🧾 Bayar QRIS Manual 👍', `script_pay_manual_1`)],
       [Markup.button.callback('💰 Bayar Pakai Saldo', `script_pay_saldo_1`)],
+      [Markup.button.callback('💳 Bayar via QRIS Otomatis 👎 (kena fee)', `script_pay_qris_1`)],
       [Markup.button.callback('🔙 Menu Utama', 'main_menu')]
     ];
     safeClearAndSend(ctx, text, Markup.inlineKeyboard(buttons));
@@ -456,7 +466,9 @@ bot.action(/^script_pay_qris_(.+)$/, async (ctx) => {
     if (script.stock <= 0) return ctx.answerCbQuery('Stok habis!', { show_alert: true });
     try {
       const buyerName = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
-      const qris = await generateDynamicQRIS(script.price, `SCR`, { name: buyerName, phone: String(ctx.from.id) });
+      const feeAmount = Math.ceil(script.price * QRIS_AUTO_FEE_PERCENT / 100);
+      const amountToPay = script.price + feeAmount;
+      const qris = await generateDynamicQRIS(amountToPay, `SCR`, { name: buyerName, phone: String(ctx.from.id) });
       const now = new Date().toISOString();
       const username = buyerName;
       db.run(`INSERT INTO script_orders (user_id, username, script_id, amount, status, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
@@ -464,7 +476,7 @@ bot.action(/^script_pay_qris_(.+)$/, async (ctx) => {
           if (dbErr) return safeClearAndSend(ctx, '⚠️ Gagal membuat pesanan.');
           const orderId = this.lastID;
           userState[userId] = { step: 'UPLOAD_SCRIPT_PROOF', scriptOrderId: orderId };
-          const detailText = `🧾 *PESANAN SCRIPT #${orderId}*\n\n📦 *Script:* ${script.name}\n💰 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS di atas, lalu kirim *foto bukti transfer* ke chat ini.`;
+          const detailText = `🧾 *PESANAN SCRIPT #${orderId}* (QRIS Otomatis)\n\n📦 *Script:* ${script.name}\n💰 *Harga:* Rp${script.price.toLocaleString('id-ID')}\n➕ *Fee QRIS Otomatis (${QRIS_AUTO_FEE_PERCENT}%):* Rp${feeAmount.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}\n\n📲 Scan QRIS di atas, lalu kirim *foto bukti transfer* ke chat ini.`;
           safeClearAndSend(ctx, detailText, {
             photo: { source: qris.imageBuffer },
             ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_script_menu')]])
@@ -628,8 +640,8 @@ bot.action('user_balance_menu', async (ctx) => {
     const balance = (tier === 'Owner' || userId === getAdminId()) ? '∞ (Unlimited)' : `Rp${(row ? row.balance || 0 : 0).toLocaleString('id-ID')}`;
     const text = `💳 *MANAJEMEN SALDO*\n\n💰 *Saldo:* ${balance}\n🏷️ *Tier:* ${tier}\n\nPilih nominal Top Up:`;
     await safeClearAndSend(ctx, text, Markup.inlineKeyboard([
-      [Markup.button.callback('➕ Rp500', 'topup_amt_500'), Markup.button.callback('➕ Rp1.000', 'topup_amt_1000')],
-      [Markup.button.callback('➕ Rp5.000', 'topup_amt_5000'), Markup.button.callback('➕ Rp10.000', 'topup_amt_10000')],
+      [Markup.button.callback('➕ Rp1.000', 'topup_amt_1000'), Markup.button.callback('➕ Rp5.000', 'topup_amt_5000')],
+      [Markup.button.callback('➕ Rp10.000', 'topup_amt_10000')],
       [Markup.button.callback('✍️ Nominal Custom', 'user_topup_custom')],
       [Markup.button.callback('🔙 Kembali', 'main_menu')]
     ]));
@@ -639,11 +651,11 @@ bot.action(/^topup_amt_(.+)$/, async (ctx) => { processTopUp(ctx, parseInt(ctx.m
 bot.action('user_topup_custom', async (ctx) => {
   ctx.answerCbQuery();
   userState[ctx.from.id] = { step: 'TOPUP_AMOUNT' };
-  await safeClearAndSend(ctx, `💰 *TOP UP CUSTOM*\n\nMasukkan nominal (500-10000000):`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]));
+  await safeClearAndSend(ctx, `💰 *TOP UP CUSTOM*\n\nMasukkan nominal (${MIN_TOPUP}-10000000):`, Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_balance_menu')]]));
 });
 
 const processTopUp = async (ctx, amount) => {
-  if (!Number.isInteger(amount) || amount < 500 || amount > 10000000) return ctx.answerCbQuery('⚠️ Nominal harus Rp500–Rp10.000.000.', { show_alert: true });
+  if (!Number.isInteger(amount) || amount < MIN_TOPUP || amount > 10000000) return ctx.answerCbQuery(`⚠️ Nominal harus Rp${MIN_TOPUP.toLocaleString('id-ID')}–Rp10.000.000.`, { show_alert: true });
   try {
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'User');
     const qris = await generateDynamicQRIS(amount, `TOPUP`, { name: username, phone: String(ctx.from.id) });
@@ -715,9 +727,12 @@ const renderQtySelector = async (ctx, prodId, qty, editInPlace) => {
     db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [prodId], async (err, res) => {
       const available = res ? res.stock_count : 0;
       if (available <= 0) return ctx.answerCbQuery ? ctx.answerCbQuery(`⚠️ Stok ${prod.name} habis!`, { show_alert: true }) : null;
-      qty = Math.max(1, Math.min(qty, available));
+      const minQty = prod.min_qty || 1;
+      if (minQty > available) return ctx.answerCbQuery ? ctx.answerCbQuery(`⚠️ Stok ${prod.name} kurang dari minimal beli (min: ${minQty}).`, { show_alert: true }) : null;
+      qty = Math.max(minQty, Math.min(qty, available));
       const totalPrice = prod.price * qty;
-      const captionText = `📦 *DETAIL: ${prod.name}*\n💰 *Harga Satuan:* Rp${prod.price.toLocaleString('id-ID')}\n📊 *Stok:* ${available}\n\n🔢 *Jumlah:* ${qty}\n💵 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`;
+      const minInfo = minQty > 1 ? `\n🔢 *Minimal Beli:* ${minQty}` : '';
+      const captionText = `📦 *DETAIL: ${prod.name}*\n💰 *Harga Satuan:* Rp${prod.price.toLocaleString('id-ID')}\n📊 *Stok:* ${available}${minInfo}\n\n🔢 *Jumlah:* ${qty}\n💵 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`;
       const buttons = Markup.inlineKeyboard([
         [Markup.button.callback('➖', `qtyadj_${prodId}_${qty}_dec`), Markup.button.callback(`${qty}`, `qtyadj_${prodId}_${qty}_noop`), Markup.button.callback('➕', `qtyadj_${prodId}_${qty}_inc`)],
         [Markup.button.callback('✍️ Ketik Jumlah', `qtytype_${prodId}`)],
@@ -766,11 +781,11 @@ const showPaymentOptions = (ctx, prodId, qty) => {
     const totalPrice = prod.price * qty;
     const buttons = Markup.inlineKeyboard([
       [Markup.button.callback('🎟️ Pakai Voucher', `vouc_${prodId}_${qty}`)],
-      [Markup.button.callback('💳 Bayar via QRIS (Otomatis)', `pay_${prodId}_${qty}_0`)],
-      [Markup.button.callback('🧾 Bayar QRIS Manual', `paymanual_${prodId}_${qty}_0`)],
-      [Markup.button.callback('🅳 Bayar via DANA', `paydana_${prodId}_${qty}_0`)],
-      [Markup.button.callback('🅶 Bayar via GoPay', `paygopay_${prodId}_${qty}_0`)],
+      [Markup.button.callback('🅳 Bayar via DANA 👍', `paydana_${prodId}_${qty}_0`)],
+      [Markup.button.callback('🅶 Bayar via GoPay 👍', `paygopay_${prodId}_${qty}_0`)],
+      [Markup.button.callback('🧾 Bayar QRIS Manual 👍', `paymanual_${prodId}_${qty}_0`)],
       [Markup.button.callback('💰 Bayar Pakai Saldo', `paysaldo_${prodId}_${qty}`)],
+      [Markup.button.callback('💳 Bayar via QRIS Otomatis 👎 (kena fee)', `pay_${prodId}_${qty}_0`)],
       [Markup.button.callback('🔙 Kembali', `buy_${prodId}`)]
     ]);
     safeClearAndSend(ctx, `🛍️ *KONFIRMASI PESANAN*\n\n📦 *Produk:* ${prod.name}\n🔢 *Jumlah:* ${qty} item\n💰 *Total:* Rp${totalPrice.toLocaleString('id-ID')}`, buttons);
@@ -799,16 +814,18 @@ bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
   db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
     if (err || !prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
     const basePrice = Math.max(1000, (prod.price * qty) - discount);
+    const feeAmount = Math.ceil(basePrice * QRIS_AUTO_FEE_PERCENT / 100);
+    const amountToPay = basePrice + feeAmount;
     const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
     try {
-      const qris = await generateDynamicQRIS(basePrice, `ORD`, { name: username, phone: String(ctx.from.id) });
+      const qris = await generateDynamicQRIS(amountToPay, `ORD`, { name: username, phone: String(ctx.from.id) });
       const now = new Date().toISOString();
       db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at, casaku_transaction_id, qris_expires_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?, ?, ?)`,
         [ctx.from.id, username, prodId, qty, discount, qris.totalAmount, now, qris.transactionId, qris.expiresAt], function (dbErr) {
           if (dbErr) return safeClearAndSend(ctx, '⚠️ Gagal membuat pesanan.');
           const orderId = this.lastID;
           userState[ctx.from.id] = { step: 'UPLOAD_PROOF', orderId };
-          const detailText = `🧾 *PESANAN #${orderId}*\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💰 *Harga:* Rp${basePrice.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}`;
+          const detailText = `🧾 *PESANAN #${orderId}* (QRIS Otomatis)\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💰 *Harga:* Rp${basePrice.toLocaleString('id-ID')}\n➕ *Fee QRIS Otomatis (${QRIS_AUTO_FEE_PERCENT}%):* Rp${feeAmount.toLocaleString('id-ID')}\n💳 *Total Bayar:* *Rp${qris.totalAmount.toLocaleString('id-ID')}*\n🧾 *Transaksi:* \`${qris.transactionId}\`\n⏳ *Berlaku sampai:* ${new Date(qris.expiresAt).toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })}`;
           safeClearAndSend(ctx, detailText, {
             photo: { source: qris.imageBuffer },
             ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]])
@@ -1236,6 +1253,20 @@ bot.action(/^delprod_(.+)$/, (ctx) => {
     safeClearAndSend(ctx, childIds.length > 0 ? `✅ Produk & ${childIds.length} variannya dihapus!` : '✅ Produk dihapus!');
   });
 });
+bot.action('admin_set_minqty', (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  db.all(`SELECT * FROM products`, (err, rows) => {
+    if (!rows || rows.length === 0) return safeClearAndSend(ctx, 'Tidak ada produk.');
+    const buttons = rows.map(p => [Markup.button.callback(`🔢 ${p.name} (min: ${p.min_qty || 1})`, `setminqty_${p.id}`)]);
+    buttons.push([Markup.button.callback('🔙 Batal', 'admin_dashboard')]);
+    safeClearAndSend(ctx, '🔢 *SET MINIMAL BELI*\n\nPilih produk (contoh: pilih varian "Batu Enchant - Api" buat atur minimal belinya):', Markup.inlineKeyboard(buttons));
+  });
+});
+bot.action(/^setminqty_(.+)$/, (ctx) => {
+  if (Number(ctx.from.id) !== getAdminId()) return;
+  userState[getAdminId()] = { step: 'SET_MINQTY', prodId: ctx.match[1] };
+  safeClearAndSend(ctx, '✍️ Masukkan jumlah MINIMAL pembelian buat produk ini (angka, minimal 1):', Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'admin_set_minqty')]]));
+});
 bot.action('admin_add_stock', (ctx) => {
   if (Number(ctx.from.id) !== getAdminId()) return;
   db.all(`SELECT * FROM products`, (err, rows) => {
@@ -1441,10 +1472,14 @@ bot.on('text', async (ctx) => {
     const qty = parseInt(ctx.message.text.trim());
     delete userState[ctx.from.id];
     if (!qty || qty < 1) return safeClearAndSend(ctx, '⚠️ Jumlah tidak valid, coba lagi lewat menu produk.');
-    db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [state.prodId], (err, res) => {
-      const available = res ? res.stock_count : 0;
-      if (qty > available) return safeClearAndSend(ctx, `⚠️ Stok cuma ${available}, masukkan jumlah lebih kecil.`);
-      renderQtySelector(ctx, state.prodId, qty, false);
+    db.get(`SELECT * FROM products WHERE id = ?`, [state.prodId], (err, prod) => {
+      const minQty = prod && prod.min_qty ? prod.min_qty : 1;
+      if (qty < minQty) return safeClearAndSend(ctx, `⚠️ Minimal beli produk ini ${minQty}, masukkan jumlah lebih besar.`);
+      db.get(`SELECT COUNT(id) AS stock_count FROM stock_items WHERE product_id = ? AND status = 'AVAILABLE'`, [state.prodId], (err, res) => {
+        const available = res ? res.stock_count : 0;
+        if (qty > available) return safeClearAndSend(ctx, `⚠️ Stok cuma ${available}, masukkan jumlah lebih kecil.`);
+        renderQtySelector(ctx, state.prodId, qty, false);
+      });
     });
     return;
   }
@@ -1466,7 +1501,7 @@ bot.on('text', async (ctx) => {
 
   if (state.step === 'TOPUP_AMOUNT') {
     const amount = parseInt(ctx.message.text.trim().replace(/\D/g, ''));
-    if (!amount || amount < 500 || amount > 10000000) return safeClearAndSend(ctx, '⚠️ Nominal tidak valid (500-10000000):');
+    if (!amount || amount < MIN_TOPUP || amount > 10000000) return safeClearAndSend(ctx, `⚠️ Nominal tidak valid (${MIN_TOPUP}-10000000):`);
     delete userState[ctx.from.id];
     processTopUp(ctx, amount);
     return;
@@ -1610,6 +1645,12 @@ bot.on('text', async (ctx) => {
       db.all(`SELECT user_id FROM visitors`, (err, rows) => {
         if (rows) rows.forEach(r => bot.telegram.sendMessage(r.user_id, msgText, Markup.inlineKeyboard([[Markup.button.url(label, url)]])).catch(() => {}));
       });
+    } else if (state.step === 'SET_MINQTY') {
+      const minQty = parseInt(ctx.message.text.trim());
+      if (!minQty || minQty < 1) return safeClearAndSend(ctx, '⚠️ Masukkan angka minimal 1:');
+      db.run(`UPDATE products SET min_qty = ? WHERE id = ?`, [minQty, state.prodId]);
+      delete userState[adminId];
+      safeClearAndSend(ctx, `✅ Minimal pembelian diatur jadi *${minQty}*!`, { parse_mode: 'Markdown' });
     } else if (state.step === 'ADD_PROD_NAME') {
       userState[adminId] = { step: 'ADD_PROD_PRICE', name: ctx.message.text.trim() };
       safeClearAndSend(ctx, 'Masukkan Harga Produk (angka):');
