@@ -7,6 +7,15 @@ const express = require('express');
 const { verifyCasakuSignature, generateDynamicQRIS } = require('./casaku');
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
+// ====== FOTO DEFAULT (HARDCODE) ======
+// Kalau admin BELUM set foto lewat menu, atau database ke-reset saat redeploy,
+// bot otomatis pakai link di bawah ini. Ganti sesuai punya kamu (boleh link
+// gambar publik/imgur/dsb, boleh juga file_id Telegram).
+const DEFAULT_QRIS_PHOTO = ''; // contoh: 'https://cdn.phototourl.com/free/2026-08-29-0bc7b073-83d3-48ee-9569-b6d103e971a3.png'
+const DEFAULT_HEADER_PHOTO = ''; // foto banner/header toko, contoh: 'https://cdn.phototourl.com/free/2026-08-29-a0e5f55c-145f-4c6b-9e91-eae94161ac42.png'
+const DEFAULT_STORE_NAME = '🛍️ TOKO DIGITAL PREMIUM'; // nama toko default
+const DEFAULT_STORE_DESC = 'Selamat datang di morvane !'; // deskripsi toko default
+
 const getAdminId = () => {
   const raw = process.env.ADMIN_ID;
   if (!raw) return 0;
@@ -61,7 +70,7 @@ db.serialize(() => {
 
   db.get(`SELECT * FROM store WHERE id = 1`, (err, row) => {
     if (!row) {
-      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, '🛍️ TOKO DIGITAL PREMIUM', 'Selamat datang di toko kami!', '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! 🎉', 'Sampai jumpa {user} 👋')`);
+      db.run(`INSERT INTO store (id, name, desc, photo, qris, dana, gopay, admin_uname, required_channel, log_group_id, welcome_msg, leave_msg) VALUES (1, ?, ?, '', '', '', '', '', '', '', 'Selamat datang {user} di grup kami! 🎉', 'Sampai jumpa {user} 👋')`, [DEFAULT_STORE_NAME, DEFAULT_STORE_DESC]);
     }
   });
 });
@@ -235,9 +244,12 @@ bot.start(async (ctx) => {
   saveUserAndVisitor(ctx);
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
-      const text = `🏬 *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
-      if (store && store.photo) {
-        await ctx.replyWithPhoto(store.photo, { caption: text, parse_mode: 'Markdown', ...getStartMenu(store) });
+      const storeName = (store && store.name && store.name.trim() !== '') ? store.name : DEFAULT_STORE_NAME;
+      const storeDesc = (store && store.desc && store.desc.trim() !== '') ? store.desc : DEFAULT_STORE_DESC;
+      const text = `🏬 *${storeName}*\n\n${storeDesc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
+      const headerPhoto = (store && store.photo) ? store.photo : DEFAULT_HEADER_PHOTO;
+      if (headerPhoto) {
+        await ctx.replyWithPhoto(headerPhoto, { caption: text, parse_mode: 'Markdown', ...getStartMenu(store) });
       } else {
         await ctx.replyWithMarkdown(text, getStartMenu(store));
       }
@@ -257,8 +269,11 @@ bot.start(async (ctx) => {
 bot.action('main_menu', async (ctx) => {
   db.get(`SELECT * FROM store WHERE id = 1`, async (err, store) => {
     getUserInfoLine(ctx, async (infoLine) => {
-      const text = `🏬 *${store.name}*\n\n${store.desc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
-      if (store && store.photo) await safeClearAndSend(ctx, text, { photo: store.photo, ...getMainMenu(ctx.from.id) });
+      const storeName = (store && store.name && store.name.trim() !== '') ? store.name : DEFAULT_STORE_NAME;
+      const storeDesc = (store && store.desc && store.desc.trim() !== '') ? store.desc : DEFAULT_STORE_DESC;
+      const text = `🏬 *${storeName}*\n\n${storeDesc}\n\n━━━━━━━━━━━━━━━━━━━\n${infoLine}\n━━━━━━━━━━━━━━━━━━━`;
+      const headerPhoto = (store && store.photo) ? store.photo : DEFAULT_HEADER_PHOTO;
+      if (headerPhoto) await safeClearAndSend(ctx, text, { photo: headerPhoto, ...getMainMenu(ctx.from.id) });
       else await safeClearAndSend(ctx, text, getMainMenu(ctx.from.id));
     });
   });
@@ -585,7 +600,8 @@ bot.action(/^selectqty_(.+)_(.+)$/, async (ctx) => {
     const totalPrice = prod.price * qty;
     const buttons = Markup.inlineKeyboard([
       [Markup.button.callback('🎟️ Pakai Voucher', `vouc_${prodId}_${qty}`)],
-      [Markup.button.callback('💳 Bayar via QRIS', `pay_${prodId}_${qty}_0`)],
+      [Markup.button.callback('💳 Bayar via QRIS (Otomatis)', `pay_${prodId}_${qty}_0`)],
+      [Markup.button.callback('🧾 Bayar QRIS Manual', `paymanual_${prodId}_${qty}_0`)],
       [Markup.button.callback('💰 Bayar Pakai Saldo', `paysaldo_${prodId}_${qty}`)],
       [Markup.button.callback('🔙 Kembali', `buy_${prodId}`)]
     ]);
@@ -624,6 +640,36 @@ bot.action(/^pay_(.+)_(.+)_(.+)$/, async (ctx) => {
     } catch (e) {
       return ctx.answerCbQuery(`⚠️ Gagal membuat QRIS: ${e.message}`, { show_alert: true });
     }
+  });
+});
+
+// Bayar QRIS MANUAL — pakai foto QRIS statis yang di-set admin (bukan QRIS dinamis Casaku)
+bot.action(/^paymanual_(.+)_(.+)_(.+)$/, async (ctx) => {
+  const prodId = ctx.match[1];
+  const qty = parseInt(ctx.match[2]);
+  const discount = parseInt(ctx.match[3]) || 0;
+  db.get(`SELECT * FROM products WHERE id = ?`, [prodId], async (err, prod) => {
+    if (err || !prod) return ctx.answerCbQuery('⚠️ Produk tidak ditemukan.', { show_alert: true });
+    db.get(`SELECT qris FROM store WHERE id = 1`, async (err, store) => {
+      const qrisPhoto = (store && store.qris && store.qris.trim() !== '') ? store.qris : DEFAULT_QRIS_PHOTO;
+      if (!qrisPhoto || qrisPhoto.trim() === '') {
+        return ctx.answerCbQuery('⚠️ Foto QRIS manual belum diatur admin. Gunakan QRIS Otomatis.', { show_alert: true });
+      }
+      const totalPrice = Math.max(1000, (prod.price * qty) - discount);
+      const username = ctx.from.username ? `@${ctx.from.username}` : (ctx.from.first_name || 'Buyer');
+      const now = new Date().toISOString();
+      db.run(`INSERT INTO orders (user_id, username, product_id, quantity, status, discount, amount, created_at) VALUES (?, ?, ?, ?, 'PENDING', ?, ?, ?)`,
+        [ctx.from.id, username, prodId, qty, discount, totalPrice, now], function (dbErr) {
+          if (dbErr) return ctx.reply('⚠️ Gagal membuat pesanan.');
+          const orderId = this.lastID;
+          userState[ctx.from.id] = { step: 'UPLOAD_PROOF', orderId };
+          const detailText = `🧾 *PESANAN #${orderId}* (QRIS Manual)\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💳 *Total Bayar:* *Rp${totalPrice.toLocaleString('id-ID')}*\n\n📲 Scan QRIS di atas, lalu kirim *foto bukti transfer* ke chat ini.`;
+          safeClearAndSend(ctx, detailText, {
+            photo: qrisPhoto,
+            ...Markup.inlineKeyboard([[Markup.button.callback('❌ Batal', 'user_catalog')]])
+          });
+        });
+    });
   });
 });
 
@@ -686,6 +732,23 @@ bot.action(/^topupreject_(.+)$/, async (ctx) => {
   });
 });
 
+// Kirim testi transaksi sukses ke grup log/testi (kalau sudah di-set admin)
+const postTestiToGroup = (text, photo) => {
+  db.get(`SELECT log_group_id FROM store WHERE id = 1`, (err, store) => {
+    if (!store || !store.log_group_id || String(store.log_group_id).trim() === '') return;
+    const groupId = store.log_group_id.trim();
+    if (photo) {
+      bot.telegram.sendPhoto(groupId, photo, { caption: text, parse_mode: 'Markdown' }).catch((e) => {
+        console.log('⚠️ Gagal kirim testi ke grup:', e.message);
+      });
+    } else {
+      bot.telegram.sendMessage(groupId, text, { parse_mode: 'Markdown' }).catch((e) => {
+        console.log('⚠️ Gagal kirim testi ke grup:', e.message);
+      });
+    }
+  });
+};
+
 const approveOrderById = (orderId) => {
   return new Promise((resolve) => {
     db.get(`SELECT o.*, p.name as product_name, p.note as product_note FROM orders o JOIN products p ON o.product_id = p.id WHERE o.id = ?`, [orderId], (err, order) => {
@@ -698,6 +761,8 @@ const approveOrderById = (orderId) => {
         db.run(`UPDATE orders SET status = 'APPROVED' WHERE id = ?`, [orderId]);
         db.run(`UPDATE stock_items SET status = 'SOLD' WHERE id IN (${stockIds.join(',')})`);
         bot.telegram.sendMessage(order.user_id, `🎉 *PEMBAYARAN DIKONFIRMASI!*\n\nDetail (#${orderId}):\n\`\`\`\n${stockContents}\n\`\`\`\n\n${order.product_note ? `📝 *CATATAN:*\n${order.product_note}` : ''}`, { parse_mode: 'Markdown' }).catch(() => {});
+        const testiText = `✅ *TRANSAKSI SUKSES*\n\n📦 *Produk:* ${order.product_name} (${order.quantity || 1}x)\n💰 *Total:* Rp${order.amount.toLocaleString('id-ID')}\n👤 *Buyer:* ${order.username}\n\n_Terima kasih sudah belanja di toko kami!_`;
+        postTestiToGroup(testiText, order.proof);
         resolve({ ok: true, order });
       });
     });
