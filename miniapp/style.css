@@ -154,6 +154,7 @@ html, body {
   box-shadow: 0 4px 14px -4px rgba(200,16,46,0.7);
   border: 1px solid rgba(255,255,255,0.08);
 }
+.tx-count { font-size: 11px; color: var(--hint); margin-top: 4px; }
 
 /* VIEWS */
 .view.hidden { display: none; }
@@ -221,7 +222,16 @@ html, body {
 .search-bar input:focus { border-color: var(--accent); }
 .search-bar input::placeholder { color: var(--hint); }
 
-/* PRODUCT LIST */
+/* SORT BAR */
+.sort-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.sort-label { font-size: 11.5px; color: var(--hint); font-weight: 700; }
+.sort-select {
+  flex: 1; background: var(--card); border: 1px solid var(--card-border); color: var(--text);
+  border-radius: var(--radius); padding: 8px 10px; font-size: 12.5px; font-family: inherit; outline: none;
+}
+.sort-select:focus { border-color: var(--accent); }
+
+/* PRODUCT LIST (legacy flat list, still used for Stok Live) */
 .product-list { display: flex; flex-direction: column; gap: 10px; }
 .product-card {
   background: var(--card);
@@ -248,7 +258,52 @@ html, body {
 }
 .stock-pill.in { background: rgba(57,255,20,0.1); color: var(--success); border-color: rgba(57,255,20,0.3); }
 .stock-pill.out { background: rgba(255,45,85,0.12); color: var(--danger); border-color: rgba(255,45,85,0.3); }
-.empty-state { text-align: center; color: var(--hint); padding: 50px 10px; font-size: 13.5px; }
+.empty-state { text-align: center; color: var(--hint); padding: 50px 10px; font-size: 13.5px; grid-column: 1 / -1; }
+
+/* PRODUCT GRID (katalog — card ala referensi) */
+.product-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 11px; }
+.grid-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.grid-card:active { transform: scale(0.97); border-color: var(--accent); }
+.grid-photo-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: linear-gradient(145deg, #1c0f16, #0f0a13);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.grid-photo-wrap img { width: 100%; height: 100%; object-fit: cover; filter: saturate(0.85) contrast(1.05); }
+.grid-photo-placeholder { font-size: 30px; opacity: 0.35; }
+.grid-stock-pill {
+  position: absolute; top: 7px; right: 7px;
+  font-size: 9.5px; padding: 4px 8px; border-radius: 999px; font-weight: 800;
+  letter-spacing: 0.01em; border: 1px solid transparent; backdrop-filter: blur(4px);
+}
+.grid-stock-pill.in { background: rgba(20,60,25,0.85); color: var(--success); border-color: rgba(57,255,20,0.4); }
+.grid-stock-pill.out { background: rgba(60,10,20,0.85); color: var(--danger); border-color: rgba(255,45,85,0.4); }
+.grid-body { padding: 10px 11px 12px; display: flex; flex-direction: column; gap: 5px; }
+.grid-name {
+  font-size: 12.5px; font-weight: 700; color: var(--text); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.6em;
+}
+.grid-price { font-size: 13.5px; font-weight: 800; color: var(--accent-2); }
+.grid-stars { font-size: 11px; color: var(--accent); letter-spacing: 1px; }
+.grid-stars .empty { color: #3a2a35; }
+.grid-buy-btn {
+  margin-top: 4px; width: 100%; background: linear-gradient(135deg, #1c6b2f, #0f4b1f);
+  color: #eafff0; border: none; border-radius: 7px; padding: 8px; font-size: 11.5px; font-weight: 700;
+  cursor: pointer; font-family: inherit;
+}
+.grid-buy-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* PRODUCT DETAIL */
 .product-detail { display: flex; flex-direction: column; gap: 14px; }
@@ -256,6 +311,18 @@ html, body {
 .detail-title { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; color: var(--text); }
 .detail-price { font-size: 18px; color: var(--accent-2); font-weight: 700; }
 .detail-note { font-size: 13px; color: var(--hint); line-height: 1.55; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius); padding: 12px 14px; }
+.detail-stars { font-size: 14px; color: var(--accent); letter-spacing: 2px; }
+.detail-stars .empty { color: #3a2a35; }
+.detail-rating-count { font-size: 11px; color: var(--hint); letter-spacing: 0; margin-left: 4px; }
+.buy-btn-group { display: flex; flex-direction: column; gap: 9px; }
+.btn-saldo {
+  background: linear-gradient(135deg, #1c6b2f, #0f4b1f);
+  color: #eafff0; border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius);
+  padding: 14px; font-size: 14px; font-weight: 700; cursor: pointer; width: 100%;
+  box-shadow: 0 6px 18px -8px rgba(28,107,47,0.6); font-family: inherit; letter-spacing: 0.02em;
+}
+.btn-saldo:active { transform: scale(0.98); }
+.btn-saldo:disabled, .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 .variant-list { display: flex; flex-direction: column; gap: 9px; }
 .variant-item {
   display: flex; justify-content: space-between; align-items: center;
@@ -417,6 +484,13 @@ html, body {
   padding: 10px;
   border: 1px solid var(--card-border);
 }
+.btn-download-qris {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--card); border: 1px dashed var(--accent-2); color: var(--accent-2);
+  border-radius: 8px; padding: 9px 16px; font-size: 12.5px; font-weight: 700;
+  cursor: pointer; text-decoration: none; font-family: inherit;
+}
+.btn-download-qris:active { transform: scale(0.96); }
 .qris-amount { font-size: 21px; font-weight: 800; color: var(--accent-2); }
 .qris-timer {
   font-size: 13px; font-weight: 700; color: var(--hint);
@@ -491,3 +565,34 @@ html, body {
 .admin-textarea { min-height: 70px; resize: vertical; }
 .admin-rating-top { display: flex; justify-content: space-between; align-items: center; }
 .admin-rating-del { background: none; border: none; color: var(--danger); font-size: 15px; cursor: pointer; }
+
+/* ADMIN: FOTO & DESKRIPSI PRODUK */
+.admin-photo-preview {
+  width: 100%; aspect-ratio: 16/9; border-radius: 8px; border: 1px dashed var(--card-border);
+  background: #1a1220; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  margin-bottom: 8px; color: var(--hint); font-size: 11px; cursor: pointer; position: relative;
+}
+.admin-photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+.admin-photo-input { display: none; }
+.admin-note-textarea { min-height: 56px; resize: vertical; }
+
+/* ADMIN: KELOLA USER */
+.admin-user-result { margin-top: 14px; background: var(--card); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; }
+.admin-user-result.hidden { display: none; }
+.admin-user-row { font-size: 12.5px; color: var(--text); margin-bottom: 5px; }
+.admin-btn-row { display: flex; gap: 8px; margin-top: 4px; }
+.admin-btn-row .btn-secondary { padding: 10px; font-size: 12px; }
+.admin-tier-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.tier-btn {
+  background: #1a1220; border: 1px solid var(--card-border); color: var(--text); border-radius: 7px;
+  padding: 8px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
+}
+.tier-btn.active, .tier-btn:active { border-color: var(--accent); color: var(--accent-2); }
+
+/* SALDO PURCHASE SUCCESS */
+.saldo-success-icon { font-size: 42px; }
+.saldo-success-detail {
+  width: 100%; background: #0d0810; border: 1px solid var(--card-border); border-radius: var(--radius);
+  padding: 12px 14px; font-size: 12.5px; color: var(--text); line-height: 1.6; text-align: left;
+  white-space: pre-wrap; word-break: break-word;
+}
