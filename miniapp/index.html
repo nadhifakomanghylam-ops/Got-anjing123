@@ -3,171 +3,229 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Morvane Store</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lucide@latest"></script>
+<title>Store</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<style>
-body{background:#05030A;color:#fff;font-family:'Outfit',sans-serif;touch-action:manipulation}
-.glass{background:rgba(17,11,37,.7);backdrop-filter:blur(12px);border:1px solid rgba(139,92,246,.15)}
-.view{display:none}.view.active{display:block}
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
-<body class="min-h-screen pb-24">
-<div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-[#110B25] border border-purple-500/50 px-5 py-3 rounded-xl text-sm font-bold opacity-0 transition-opacity max-w-[90%] text-center"></div>
-<header class="sticky top-0 z-40 bg-[#05030A]/80 backdrop-blur border-b border-white/5 px-4 py-3 flex justify-between items-center">
-<div class="flex items-center gap-3"><button onclick="openDrawer()" class="p-2 active:scale-90"><i data-lucide="menu" class="w-6 h-6"></i></button>
-<div><h2 class="text-lg font-bold flex items-center gap-2"><span id="storeName">Morvane Store</span><i data-lucide="badge-check" class="w-5 h-5 text-cyan-400"></i></h2>
-<p class="text-[10px] text-purple-400 uppercase tracking-widest font-semibold" id="storeTag">mini app</p></div></div>
-<button onclick="toggleNotif()" class="relative p-2 active:scale-90"><i data-lucide="bell" class="w-6 h-6"></i><span id="notifDot" class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full hidden"></span></button>
-</header>
-<div id="overlay" class="fixed inset-0 bg-black/60 z-40 hidden" onclick="closeDrawer()"></div>
-<aside id="drawer" class="fixed left-0 top-0 h-full w-72 bg-[#0B0715] border-r border-white/5 z-50 -translate-x-full transition-transform flex flex-col">
-<div class="p-6 flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 to-cyan-400 flex items-center justify-center"><i data-lucide="crown" class="w-6 h-6"></i></div>
-<div><h1 class="font-bold text-lg" id="dName">User</h1><p class="text-xs text-gray-400" id="dRole">Member</p></div></div>
-<nav class="flex-1 px-4 space-y-1 overflow-auto">
-<button onclick="go('home')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-white/5"><i data-lucide="home" class="w-5 h-5"></i>Beranda</button>
-<button onclick="go('products')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-white/5"><i data-lucide="package" class="w-5 h-5"></i>Produk</button>
-<button onclick="go('orders')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-white/5"><i data-lucide="receipt" class="w-5 h-5"></i>Pesanan</button>
-<button onclick="go('profile')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-white/5"><i data-lucide="user" class="w-5 h-5"></i>Profile</button>
-<div id="adminMenu" class="hidden"><p class="text-[10px] text-purple-400 uppercase tracking-widest px-4 pt-4 pb-1">Admin Area</p>
-<button onclick="go('admin','ringkasan')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-purple-600/20 text-white border border-purple-500/50"><i data-lucide="layout-dashboard" class="w-5 h-5 text-cyan-400"></i>Dashboard</button>
-<button onclick="go('admin','deposit')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-white/5"><i data-lucide="wallet" class="w-5 h-5"></i>Konfirmasi Deposit</button>
-<button onclick="go('admin','produk')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-white/5"><i data-lucide="boxes" class="w-5 h-5"></i>Kelola Produk</button>
-<button onclick="go('admin','settings')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-gray-400 hover:bg-white/5"><i data-lucide="settings" class="w-5 h-5"></i>Pengaturan</button></div>
-</nav></aside>
-<div id="notifPanel" class="hidden fixed top-16 right-4 w-72 glass rounded-xl p-3 space-y-2 max-h-80 overflow-auto z-50"></div>
-<main class="p-4 max-w-5xl mx-auto space-y-6">
-<section id="v-home" class="view active space-y-6">
-<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-<div><h1 class="text-3xl font-bold">Halo, <span id="uName">User</span> 👋</h1><p class="text-gray-400">Selamat datang di <span id="wStore">Morvane Store</span></p>
-<div class="inline-flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 px-4 py-1.5 rounded-full mt-3"><i data-lucide="crown" class="w-4 h-4 text-yellow-400"></i><span class="text-yellow-400 text-sm font-bold">Member Gold</span></div></div>
-<div class="glass rounded-2xl p-5 relative overflow-hidden"><div class="absolute -right-6 -top-6 w-32 h-32 bg-purple-600/20 blur-3xl rounded-full"></div>
-<p class="text-gray-400 text-sm">Saldo Anda</p><h2 class="text-2xl font-bold my-2" id="balHome">Rp 0</h2>
-<p id="topHint" class="text-[11px] text-cyan-400 mb-2 hidden">Yuk top up dulu 🚀</p>
-<button onclick="openTopUp()" class="bg-purple-600 font-bold px-4 py-2 rounded-xl active:scale-95 text-sm flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Top Up</button></div></div>
-<div class="relative h-44 rounded-2xl overflow-hidden border border-white/5"><div class="absolute inset-0 bg-gradient-to-r from-[#2E1065] via-[#4C1D95] to-[#0B0715]"></div>
-<div class="absolute inset-0 p-6 flex flex-col justify-center z-10"><span class="bg-white/10 border border-white/20 text-xs font-bold px-3 py-1 rounded-lg w-fit mb-2">🔥 PROMO HARI INI</span>
-<h2 class="text-3xl font-black">DISKON HINGGA <span class="text-cyan-400">50%</span></h2><p class="text-white/80 text-sm mb-4">Untuk semua produk digital</p>
-<button onclick="go('products')" class="bg-white text-purple-600 font-bold px-5 py-2.5 rounded-xl w-fit text-sm active:scale-95">🛒 Belanja Sekarang</button></div></div>
-<div><div class="flex justify-between items-center mb-4"><h3 class="text-xl font-bold">Produk Populer</h3><button onclick="go('products')" class="text-purple-400 text-sm">Lihat semua →</button></div>
-<div id="homeProd" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div></div>
-</section>
-<section id="v-products" class="view space-y-4"><h1 class="text-2xl font-bold">Semua Produk</h1><div id="allProd" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div></section>
-<section id="v-orders" class="view space-y-4"><h1 class="text-2xl font-bold">Pesanan Saya</h1><div id="ordList" class="space-y-3"></div></section>
-<section id="v-profile" class="view space-y-4">
-<div class="glass rounded-2xl p-6 text-center"><div class="w-20 h-20 mx-auto rounded-full bg-gradient-to-tr from-purple-600 to-cyan-400 flex items-center justify-center text-3xl font-black" id="pAv">U</div>
-<h2 class="text-xl font-bold mt-3" id="pName">User</h2><p class="text-sm mt-1"><span id="pRole" class="px-3 py-1 rounded-full bg-cyan-400/20 text-cyan-400 text-xs font-bold">USER</span></p>
-<p class="text-gray-400 text-xs mt-2">ID Telegram: <span id="pTg">-</span></p></div>
-<div class="glass rounded-2xl p-5 flex justify-between items-center"><div><p class="text-gray-400 text-sm">Saldo Anda</p><h2 class="text-2xl font-bold" id="pBal">Rp 0</h2></div>
-<button onclick="openTopUp()" class="bg-purple-600 font-bold px-4 py-2 rounded-xl active:scale-95 text-sm">+ Top Up</button></div>
-<button onclick="go('orders')" class="w-full glass rounded-xl p-4 flex items-center gap-3 active:scale-95"><i data-lucide="receipt" class="w-5 h-5 text-cyan-400"></i>Riwayat Pesanan</button>
-</section>
-<section id="v-admin" class="view space-y-4">
-<h1 class="text-2xl font-bold flex items-center gap-2"><i data-lucide="shield" class="text-purple-400"></i>Admin Dashboard</h1>
-<div class="flex gap-2 overflow-auto">
-<button onclick="aTab('ringkasan')" id="tb-ringkasan" class="px-4 py-2 rounded-xl text-sm font-bold bg-purple-600 whitespace-nowrap">📊 Ringkasan</button>
-<button onclick="aTab('deposit')" id="tb-deposit" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#110B25] whitespace-nowrap">💳 Deposit</button>
-<button onclick="aTab('produk')" id="tb-produk" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#110B25] whitespace-nowrap">📦 Produk</button>
-<button onclick="aTab('settings')" id="tb-settings" class="px-4 py-2 rounded-xl text-sm font-bold bg-[#110B25] whitespace-nowrap">🏪 Pengaturan</button></div>
-<div id="t-ringkasan" class="space-y-4"><div id="aStats" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div><h3 class="font-bold">Pesanan Masuk</h3><div id="aOrd" class="space-y-3"></div></div>
-<div id="t-deposit" class="space-y-3 hidden"><div id="aDep" class="space-y-3"></div></div>
-<div id="t-produk" class="space-y-3 hidden"><button onclick="openForm()" class="w-full bg-purple-600 font-bold py-3 rounded-xl active:scale-95">+ Tambah Produk</button><div id="aProd" class="space-y-3"></div></div>
-<div id="t-settings" class="space-y-3 hidden"><div class="glass rounded-2xl p-5 space-y-4">
-<div><label class="text-sm text-gray-400">Nama Store</label><input id="sName" class="w-full mt-1 bg-[#110B25] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500"></div>
-<div><label class="text-sm text-gray-400">Tagline</label><input id="sTag" class="w-full mt-1 bg-[#110B25] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500"></div>
-<button onclick="saveSet()" class="w-full bg-purple-600 font-bold py-3 rounded-xl active:scale-95">SIMPAN</button></div></div>
-</section>
-</main>
-<nav class="fixed bottom-0 left-0 w-full bg-[#0B0715]/90 backdrop-blur border-t border-white/10 z-40">
-<div class="flex justify-around h-16">
-<button onclick="go('home')" data-v="home" class="bn flex flex-col items-center justify-center gap-1 w-full text-purple-400"><i data-lucide="home" class="w-6 h-6"></i><span class="text-[10px] font-bold">Beranda</span></button>
-<button onclick="go('products')" data-v="products" class="bn flex flex-col items-center justify-center gap-1 w-full text-gray-400"><i data-lucide="shopping-bag" class="w-6 h-6"></i><span class="text-[10px]">Produk</span></button>
-<button onclick="go('orders')" data-v="orders" class="bn flex flex-col items-center justify-center gap-1 w-full text-gray-400"><i data-lucide="receipt" class="w-6 h-6"></i><span class="text-[10px]">Pesanan</span></button>
-<button onclick="go('profile')" data-v="profile" class="bn flex flex-col items-center justify-center gap-1 w-full text-gray-400"><i data-lucide="user" class="w-6 h-6"></i><span class="text-[10px]">Profile</span></button>
-</div></nav>
-<div id="m-topup" class="hidden fixed inset-0 z-[90] bg-black/70 flex items-end justify-center p-4"><div class="glass w-full max-w-md rounded-2xl p-6 space-y-4"><h3 class="font-bold text-lg">💳 Top Up Saldo</h3>
-<div class="grid grid-cols-2 gap-2" id="nomGrid"></div>
-<input id="custNom" type="number" placeholder="Nominal lain (min 10.000)" class="w-full bg-[#110B25] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500">
-<div class="flex gap-3"><button onclick="hide('m-topup')" class="flex-1 bg-[#110B25] border border-white/10 py-3 rounded-xl font-bold active:scale-95">Batal</button>
-<button onclick="createQris()" class="flex-1 bg-purple-600 py-3 rounded-xl font-bold active:scale-95">Lanjut → QRIS</button></div></div></div>
-<div id="m-qris" class="hidden fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4"><div class="glass w-full max-w-sm rounded-2xl p-6 space-y-3 text-center"><h3 class="font-bold text-lg">📱 Scan QRIS</h3>
-<p class="text-gray-400 text-xs">ID Deposit: <span id="qDepId" class="text-cyan-400 font-bold"></span></p>
-<img id="qImg" class="w-48 h-48 mx-auto rounded-xl bg-white p-2" alt="QRIS">
-<p class="text-2xl font-black" id="qAmt"></p>
-<p class="text-sm text-gray-400">Selesaikan dalam <span id="qTimer" class="text-cyan-400 font-bold">10:00</span></p>
-<div class="flex gap-3 pt-2"><button onclick="cancelDep()" class="flex-1 bg-red-500/20 text-red-400 py-3 rounded-xl font-bold active:scale-95">❌ Batalkan</button>
-<button onclick="markPaid()" class="flex-1 bg-green-500/20 text-green-400 py-3 rounded-xl font-bold active:scale-95">✅ Sudah Bayar</button></div></div></div>
-<div id="m-pending" class="hidden fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4"><div class="glass w-full max-w-sm rounded-2xl p-6 space-y-3 text-center"><div class="text-4xl">⏳</div><h3 class="font-bold text-lg">Deposit Belum Selesai</h3>
-<p class="text-sm text-gray-400" id="pendInfo"></p>
-<div class="flex gap-3 pt-2"><button onclick="cancelDep()" class="flex-1 bg-red-500/20 text-red-400 py-3 rounded-xl font-bold active:scale-95">Batalkan</button>
-<button onclick="resumeQris()" class="flex-1 bg-purple-600 py-3 rounded-xl font-bold active:scale-95">Lanjutkan</button></div></div></div>
-<div id="m-buy" class="hidden fixed inset-0 z-[90] bg-black/70 flex items-end md:items-center justify-center p-4"><div class="glass w-full max-w-md rounded-2xl p-6 space-y-4"><div id="buyInfo"></div>
-<div class="flex items-center justify-center gap-4"><button onclick="chgQty(-1)" class="w-10 h-10 rounded-xl bg-[#110B25] border border-white/10 text-xl font-black active:scale-90">−</button>
-<span id="qtyVal" class="text-2xl font-black w-10 text-center">1</span><button onclick="chgQty(1)" class="w-10 h-10 rounded-xl bg-[#110B25] border border-white/10 text-xl font-black active:scale-90">+</button></div>
-<div class="flex justify-between items-center"><span class="text-gray-400">Total Bayar</span><span id="buyTot" class="text-xl font-black text-cyan-400"></span></div>
-<div class="flex gap-3"><button onclick="hide('m-buy')" class="flex-1 bg-[#110B25] border border-white/10 py-3 rounded-xl font-bold active:scale-95">Batal</button>
-<button onclick="confirmBuy()" class="flex-1 bg-purple-600 py-3 rounded-xl font-bold active:scale-95">Beli Sekarang</button></div></div></div>
-<div id="m-receipt" class="hidden fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4"><div class="glass w-full max-w-md rounded-2xl p-5 space-y-3 max-h-[92vh] overflow-auto"><h3 class="font-bold text-center">🧾 Struk Pembelian</h3>
-<img id="recImg" class="w-full rounded-xl border border-purple-500/40" alt="Struk">
-<div class="flex gap-3"><a id="recDl" download="struk.png" class="flex-1 text-center bg-[#110B25] border border-white/10 py-3 rounded-xl font-bold active:scale-95">💾 Simpan</a>
-<button onclick="hide('m-receipt')" class="flex-1 bg-purple-600 py-3 rounded-xl font-bold active:scale-95">Tutup</button></div></div></div>
-<div id="m-form" class="hidden fixed inset-0 z-[90] bg-black/70 flex items-end md:items-center justify-center p-4"><div class="glass w-full max-w-md rounded-2xl p-6 space-y-3"><h3 class="font-bold text-lg">Form Produk</h3>
-<input id="fName" placeholder="Nama produk" class="w-full bg-[#110B25] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500">
-<input id="fNom" placeholder="Nominal (cth: 86 Diamond)" class="w-full bg-[#110B25] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500">
-<input id="fPrice" type="number" placeholder="Harga (cth: 20000)" class="w-full bg-[#110B25] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500">
-<input id="fEmoji" placeholder="Emoji (cth: 🎮)" class="w-full bg-[#110B25] border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-purple-500">
-<div class="flex gap-3 pt-2"><button onclick="hide('m-form')" class="flex-1 bg-[#110B25] border border-white/10 py-3 rounded-xl font-bold active:scale-95">Batal</button>
-<button onclick="saveProd()" class="flex-1 bg-purple-600 py-3 rounded-xl font-bold active:scale-95">Simpan</button></div></div></div>
-<script>
-let ME=null,DATA=null,chosenNom=0,buyId=null,qty=1,qrisOpen=false,curDep=null,editId=null;
-let tgUser=null;
-if(window.Telegram&&Telegram.WebApp){const tg=Telegram.WebApp;tg.ready();tg.expand();if(tg.disableVerticalSwipes)tg.disableVerticalSwipes();tg.setHeaderColor('#05030A');tg.setBackgroundColor('#05030A');tgUser=(tg.initDataUnsafe&&tg.initDataUnsafe.user)||null;}
-const TG_ID=tgUser?String(tgUser.id):'demo';
-const INIT_DATA=window.Telegram&&Telegram.WebApp?Telegram.WebApp.initData:'';
-let tt;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.remove('opacity-0');clearTimeout(tt);tt=setTimeout(()=>t.classList.add('opacity-0'),2500);}
-function show(id){document.getElementById(id).classList.remove('hidden')}
-function hide(id){document.getElementById(id).classList.add('hidden')}
-function openDrawer(){document.getElementById('drawer').classList.remove('-translate-x-full');document.getElementById('overlay').classList.remove('hidden')}
-function closeDrawer(){document.getElementById('drawer').classList.add('-translate-x-full');document.getElementById('overlay').classList.add('hidden')}
-const fmt=n=>'Rp '+Number(n||0).toLocaleString('id-ID');
-async function api(p,o={}){try{const r=await fetch(p,{...o,headers:{'Content-Type':'application/json'},body:o.body?JSON.stringify(o.body):undefined});return await r.json()}catch(e){return{error:e.message}}}
-async function loadAll(){const res=await api('/api/me',{method:'POST',body:{initData:INIT_DATA,tgId:TG_ID,name:tgUser?tgUser.first_name:'Guest'}});if(res.error){toast('❌ '+res.error);return}ME=res.me;DATA=res.data;renderAll();}
-function go(v,tab){if(v==='admin'&&ME.role!=='ADMIN'){toast('⛔ Akses admin ditolak!');return}document.querySelectorAll('.view').forEach(e=>e.classList.remove('active'));document.getElementById('v-'+v).classList.add('active');document.querySelectorAll('.bn').forEach(b=>{const on=b.dataset.v===v;b.classList.toggle('text-purple-400',on);b.classList.toggle('text-gray-400',!on)});closeDrawer();window.scrollTo(0,0);if(v==='orders')renderOrders();if(v==='products')renderProducts();if(v==='profile')renderProfile();if(v==='admin'){aTab(tab||'ringkasan');renderAdmin()}}
-function aTab(t){['ringkasan','deposit','produk','settings'].forEach(x=>{document.getElementById('t-'+x).classList.toggle('hidden',x!==t);document.getElementById('tb-'+x).className=(x===t?'px-4 py-2 rounded-xl text-sm font-bold bg-purple-600 whitespace-nowrap':'px-4 py-2 rounded-xl text-sm font-bold bg-[#110B25] whitespace-nowrap')});}
-function toggleNotif(){const p=document.getElementById('notifPanel');p.classList.toggle('hidden');if(!p.classList.contains('hidden')){p.innerHTML=ME.notifs.length?ME.notifs.slice().reverse().map(n=>`<div class="bg-[#110B25] rounded-lg p-3"><p class="font-bold text-sm">${n.title}</p><p class="text-xs text-gray-400">${n.msg}</p></div>`).join(''):'<p class="text-gray-400 text-sm text-center">Tidak ada notifikasi</p>';ME.notifs.forEach(n=>n.read=true);api('/api/mark-read',{method:'POST',body:{tgId:TG_ID}});document.getElementById('notifDot').classList.add('hidden')}}
-const stC=s=>s==='SUCCESS'?'bg-green-500/20 text-green-400':(s==='CANCELLED'||s==='EXPIRED'||s==='REJECTED')?'bg-red-500/20 text-red-400':'bg-yellow-500/20 text-yellow-400';
-const card=p=>`<div class="bg-[#110B25] rounded-2xl overflow-hidden border border-white/5 hover:border-purple-500/60 transition-all"><div class="h-28 bg-gradient-to-br ${p.grad} flex items-center justify-center text-5xl">${p.emoji}</div><div class="p-3"><h4 class="font-bold truncate">${p.name}</h4><p class="text-cyan-400 text-xs mb-1">💎 ${p.nominal}</p><p class="font-bold">${fmt(p.price)}</p><button onclick="openBuy(${p.id})" class="w-full mt-2 bg-purple-600 font-bold py-2 rounded-xl active:scale-95 text-sm">Beli</button></div></div>`;
-function renderAll(){document.getElementById('storeName').textContent=DATA.settings.storeName;document.getElementById('storeTag').textContent=DATA.settings.tagline;document.getElementById('wStore').textContent=DATA.settings.storeName;document.getElementById('uName').textContent=ME.name;document.getElementById('balHome').textContent=fmt(ME.balance);document.getElementById('dName').textContent=ME.name;document.getElementById('dRole').textContent=ME.role==='ADMIN'?'Admin Dashboard':'Member';document.getElementById('adminMenu').classList.toggle('hidden',ME.role!=='ADMIN');document.getElementById('topHint').classList.toggle('hidden',ME.balance>0);document.getElementById('homeProd').innerHTML=DATA.products.slice(0,4).map(card).join('')||'<p class="text-gray-400 col-span-2">Belum ada produk.</p>';document.getElementById('notifDot').classList.toggle('hidden',!ME.notifs.some(n=>!n.read));renderProfile();lucide.createIcons();}
-function renderProducts(){document.getElementById('allProd').innerHTML=DATA.products.map(card).join('')||'<p class="text-gray-400">Belum ada produk.</p>';}
-function renderOrders(){const el=document.getElementById('ordList');if(!ME.orders.length){el.innerHTML='<div class="text-center py-16 text-gray-400">📭 Belum ada pesanan.</div>';return}el.innerHTML=ME.orders.slice().reverse().map(o=>`<div class="glass rounded-xl p-4"><div class="flex justify-between items-center"><div><p class="font-bold">${o.emoji} ${o.product}</p><p class="text-xs text-gray-400">${o.trx} • ${o.date}</p></div><div class="text-right"><p class="font-bold text-cyan-400">${fmt(o.amount)}</p><span class="text-[10px] px-2 py-0.5 rounded-full ${stC(o.status)}">${o.status}</span></div></div><div class="flex gap-2 mt-3"><button onclick='showReceipt(${JSON.stringify(o).replace(/'/g,"&#39;")})' class="flex-1 bg-[#110B25] border border-white/10 text-xs font-bold py-2 rounded-lg active:scale-95">🧾 Lihat Struk</button></div></div>`).join('');}
-function renderProfile(){document.getElementById('pName').textContent=ME.name;document.getElementById('pAv').textContent=(ME.name[0]||'U').toUpperCase();document.getElementById('pBal').textContent=fmt(ME.balance);document.getElementById('pRole').textContent=ME.role;document.getElementById('pTg').textContent=ME.telegramId;}
-function renderAdmin(){const rev=ME.orders.filter(o=>o.status==='SUCCESS').reduce((a,b)=>a+b.amount,0);const depIn=ME.deposits.filter(d=>d.status==='SUCCESS').reduce((a,b)=>a+b.amount,0);document.getElementById('aStats').innerHTML=[['💰','Pendapatan',fmt(rev)],['🧾','Pesanan',ME.orders.length],['📦','Produk',DATA.products.length],['💳','Deposit Masuk',fmt(depIn)]].map(s=>`<div class="glass rounded-xl p-4"><p class="text-2xl">${s[0]}</p><p class="text-gray-400 text-xs mt-1">${s[1]}</p><p class="font-bold truncate">${s[2]}</p></div>`).join('');document.getElementById('aOrd').innerHTML=ME.orders.length?ME.orders.slice().reverse().map(o=>`<div class="glass rounded-xl p-4"><div class="flex justify-between items-center"><div><p class="font-bold text-sm">${o.emoji} ${o.product} x${o.qty}</p><p class="text-xs text-gray-400">${o.trx} • ${fmt(o.amount)}</p></div><span class="text-[10px] px-2 py-0.5 rounded-full ${stC(o.status)}">${o.status}</span></div>${o.status==='PENDING'?`<div class="flex gap-2 mt-3"><button onclick="setStatus(${o.id},'SUCCESS')" class="flex-1 bg-green-500/20 text-green-400 text-xs font-bold py-2 rounded-lg active:scale-95">✅ Selesai + Testimoni</button><button onclick="setStatus(${o.id},'CANCELLED')" class="flex-1 bg-red-500/20 text-red-400 text-xs font-bold py-2 rounded-lg active:scale-95">❌ Batalkan</button></div>`:''}</div>`).join(''):'<p class="text-gray-400 text-sm">Belum ada pesanan.</p>';renderDeposits();renderAdminProducts();document.getElementById('sName').value=DATA.settings.storeName;document.getElementById('sTag').value=DATA.settings.tagline;lucide.createIcons();}
-function renderDeposits(){document.getElementById('aDep').innerHTML=ME.deposits.length?ME.deposits.slice().reverse().map(d=>`<div class="glass rounded-xl p-4"><div class="flex justify-between items-center"><div><p class="font-bold text-sm">${fmt(d.amount)}</p><p class="text-xs text-gray-400">DEP-${String(d.id).slice(-6)} • ${new Date(d.createdAt).toLocaleString('id-ID')}</p></div><span class="text-[10px] px-2 py-0.5 rounded-full ${stC(d.status)}">${d.status}</span></div>${d.status==='PENDING'?`<div class="flex gap-2 mt-3"><button onclick="confirmDeposit(${d.id})" class="flex-1 bg-green-500/20 text-green-400 text-xs font-bold py-2 rounded-lg active:scale-95">✅ Konfirmasi</button><button onclick="rejectDeposit(${d.id})" class="flex-1 bg-red-500/20 text-red-400 text-xs font-bold py-2 rounded-lg active:scale-95">❌ Tolak</button></div>`:''}</div>`).join(''):'<p class="text-gray-400 text-sm">Belum ada deposit.</p>';}
-function renderAdminProducts(){document.getElementById('aProd').innerHTML=DATA.products.map(p=>`<div class="glass rounded-xl p-3 flex justify-between items-center"><div class="flex items-center gap-3"><span class="text-2xl">${p.emoji}</span><div><p class="font-bold text-sm">${p.name}</p><p class="text-xs text-gray-400">${p.nominal} • ${fmt(p.price)}</p></div></div><div class="flex gap-2"><button onclick="openForm(${p.id})" class="p-2 rounded-lg bg-cyan-400/20 text-cyan-400 active:scale-90">✏️</button><button onclick="delProduct(${p.id})" class="p-2 rounded-lg bg-red-500/20 text-red-400 active:scale-90">🗑️</button></div></div>`).join('');}
-function openTopUp(){const pend=ME.deposits.find(d=>d.status==='PENDING');if(pend){document.getElementById('pendInfo').innerHTML=`Kamu punya deposit <b class="text-cyan-400">${fmt(pend.amount)}</b> yang masih PENDING.<br>Selesaikan atau batalkan dulu.`;show('m-pending');return}chosenNom=0;document.getElementById('custNom').value='';document.getElementById('nomGrid').innerHTML=[10000,20000,50000,100000].map(n=>`<button onclick="pickNom(${n})" class="bg-[#110B25] border border-white/10 rounded-xl py-3 font-bold active:scale-95 hover:border-purple-500 text-sm">${fmt(n)}</button>`).join('');show('m-topup');}
-function pickNom(n){chosenNom=n;document.getElementById('custNom').value=n;}
-async function createQris(){const v=parseInt(document.getElementById('custNom').value)||chosenNom;if(!v||v<10000){toast('⚠️ Minimal top up Rp 10.000');return}const res=await api('/api/deposit/create',{method:'POST',body:{tgId:TG_ID,amount:v}});if(res.error){toast('❌ '+res.error);return}hide('m-topup');curDep=res.deposit;qrisOpen=true;document.getElementById('qDepId').textContent='DEP-'+String(curDep.id).slice(-6);document.getElementById('qAmt').textContent=fmt(curDep.amount);document.getElementById('qImg').src='https://api.qrserver.com/v1/create-qr-code/?size=220x220&data='+encodeURIComponent('QRIS|'+DATA.settings.storeName+'|'+curDep.amount+'|DEP-'+String(curDep.id).slice(-6));show('m-qris');tickQris();toast('📱 QRIS dibuat!');}
-function tickQris(){if(!curDep||!qrisOpen)return;const el=document.getElementById('qTimer');const left=curDep.expiresAt-Date.now();if(left<=0){qrisOpen=false;api('/api/deposit/expire',{method:'POST',body:{tgId:TG_ID,depId:curDep.id}});hide('m-qris');loadAll();toast('⌛ Waktu habis, deposit expired');return}el.textContent=String(Math.floor(left/60000)).padStart(2,'0')+':'+String(Math.floor(left%60000/1000)).padStart(2,'0');}
-async function cancelDep(){if(curDep&&curDep.status==='PENDING'){await api('/api/deposit/cancel',{method:'POST',body:{tgId:TG_ID,depId:curDep.id}})}qrisOpen=false;hide('m-qris');hide('m-pending');loadAll();toast('❌ Deposit dibatalkan.');}
-async function markPaid(){qrisOpen=false;hide('m-qris');await api('/api/deposit/mark-paid',{method:'POST',body:{tgId:TG_ID,depId:curDep.id}});loadAll();toast('⏳ Menunggu verifikasi pembayaran...');}
-function resumeQris(){hide('m-pending');const pend=ME.deposits.find(d=>d.status==='PENDING');if(pend){curDep=pend;qrisOpen=true;document.getElementById('qDepId').textContent='DEP-'+String(curDep.id).slice(-6);document.getElementById('qAmt').textContent=fmt(curDep.amount);document.getElementById('qImg').src='https://api.qrserver.com/v1/create-qr-code/?size=220x220&data='+encodeURIComponent('QRIS|'+DATA.settings.storeName+'|'+curDep.amount+'|DEP-'+String(curDep.id).slice(-6));show('m-qris');tickQris();}}
-function openBuy(id){buyId=id;qty=1;renderBuy();show('m-buy');}
-function chgQty(d){qty=Math.min(99,Math.max(1,qty+d));renderBuy();}
-function renderBuy(){const p=DATA.products.find(x=>x.id===buyId);if(!p)return;document.getElementById('buyInfo').innerHTML=`<div class="text-center"><div class="text-5xl mb-1">${p.emoji}</div><h3 class="text-lg font-bold">${p.name}</h3><p class="text-cyan-400 text-sm mb-1">💎 ${p.nominal}</p><p class="text-xs text-gray-400">Saldo: ${fmt(ME.balance)}</p></div>`;document.getElementById('qtyVal').textContent=qty;document.getElementById('buyTot').textContent=fmt(p.price*qty);}
-async function confirmBuy(){const p=DATA.products.find(x=>x.id===buyId);if(!p)return;const total=p.price*qty;if(ME.balance<total){toast('❌ Saldo tidak cukup! Top Up dulu.');return}const res=await api('/api/order/create',{method:'POST',body:{tgId:TG_ID,productId:p.id,qty:qty}});if(res.error){toast('❌ '+res.error);return}hide('m-buy');loadAll();showReceipt(res.order);toast('✅ Pesanan '+res.order.trx+' berhasil!');}
-function drawReceipt(o){const c=document.createElement('canvas');c.width=640;c.height=960;const x=c.getContext('2d');x.fillStyle='#0B0715';x.fillRect(0,0,640,960);x.strokeStyle='#7C3AED';x.lineWidth=8;x.strokeRect(12,12,616,936);x.textAlign='center';x.fillStyle='#fff';x.font='800 42px Outfit,Arial';x.fillText(DATA.settings.storeName.toUpperCase(),320,90);x.fillStyle='#8B5CF6';x.font='600 20px Outfit,Arial';x.fillText('PREMIUM DIGITAL MARKETPLACE ✓',320,124);ln(155);x.fillStyle='#22D3EE';x.font='700 32px Outfit,Arial';x.fillText(o.trx,320,200);x.fillStyle='#A1A1AA';x.font='400 20px Outfit,Arial';x.fillText(o.date,320,232);x.font='110px serif';x.fillText(o.emoji,320,370);x.fillStyle='#fff';x.font='700 34px Outfit,Arial';x.fillText(o.product,320,430);x.fillStyle='#22D3EE';x.font='600 24px Outfit,Arial';x.fillText(o.nominal,320,466);ln(505);rw('Jumlah',o.qty+'x',550,false);rw('Harga Satuan',fmt(o.price),590,false);rw('TOTAL',fmt(o.amount),640,true);ln(685);x.fillStyle=o.status==='SUCCESS'?'#4ADE80':(o.status==='CANCELLED'?'#F87171':'#FACC15');x.font='800 30px Outfit,Arial';x.fillText('STATUS: '+o.status,320,735);x.fillStyle='#A1A1AA';x.font='400 18px Outfit,Arial';x.fillText('Simpan struk ini sebagai bukti pembelian sah.',320,880);x.fillText('Terima kasih sudah belanja di '+DATA.settings.storeName+' 💜',320,910);function ln(y){x.strokeStyle='rgba(139,92,246,.4)';x.lineWidth=2;x.setLineDash([6,6]);x.beginPath();x.moveTo(60,y);x.lineTo(580,y);x.stroke();x.setLineDash([]);}function rw(l,v,y,big){x.textAlign='left';x.fillStyle=big?'#fff':'#A1A1AA';x.font=(big?'800 28px':'400 22px')+' Outfit,Arial';x.fillText(l,70,y);x.textAlign='right';x.fillStyle=big?'#22D3EE':'#fff';x.fillText(v,570,y);x.textAlign='center';}return c.toDataURL('image/png');}
-function showReceipt(o){const img=drawReceipt(o);document.getElementById('recImg').src=img;const a=document.getElementById('recDl');a.href=img;a.download=o.trx+'.png';show('m-receipt');}
-async function setStatus(id,st){const res=await api('/api/order/status',{method:'POST',body:{tgId:TG_ID,orderId:id,status:st}});if(res.error){toast('❌ '+res.error);return}loadAll();renderAdmin();toast(st==='SUCCESS'?'✅ Order selesai! Testimoni terkirim.':'Status: '+st);}
-async function confirmDeposit(id){const res=await api('/api/deposit/confirm',{method:'POST',body:{tgId:TG_ID,depId:id}});if(res.error){toast('❌ '+res.error);return}loadAll();renderAdmin();toast('✅ Deposit dikonfirmasi!');}
-async function rejectDeposit(id){await api('/api/deposit/reject',{method:'POST',body:{tgId:TG_ID,depId:id}});loadAll();renderAdmin();toast('Deposit ditolak');}
-function openForm(id){editId=id||null;const p=DATA.products.find(x=>x.id===id);document.getElementById('fName').value=p?p.name:'';document.getElementById('fNom').value=p?p.nominal:'';document.getElementById('fPrice').value=p?p.price:'';document.getElementById('fEmoji').value=p?p.emoji:'';show('m-form');}
-async function saveProd(){const name=document.getElementById('fName').value.trim(),nominal=document.getElementById('fNom').value.trim(),price=parseInt(document.getElementById('fPrice').value),emoji=document.getElementById('fEmoji').value||'🎮';if(!name||!nominal||!price){toast('⚠️ Lengkapi data produk');return}const res=await api('/api/product/save',{method:'POST',body:{tgId:TG_ID,id:editId,name,nominal,price,emoji}});if(res.error){toast('❌ '+res.error);return}hide('m-form');loadAll();renderAdmin();toast('✅ Produk disimpan!');}
-async function delProduct(id){if(!confirm('Hapus produk ini?'))return;await api('/api/product/delete',{method:'POST',body:{tgId:TG_ID,id:id}});loadAll();renderAdmin();toast('🗑️ Produk dihapus');}
-async function saveSet(){const storeName=document.getElementById('sName').value.trim()||'Morvane Store';const tagline=document.getElementById('sTag').value.trim()||'mini app';const res=await api('/api/settings/save',{method:'POST',body:{tgId:TG_ID,storeName,tagline}});if(res.error){toast('❌ '+res.error);return}loadAll();toast('✅ Pengaturan disimpan!');}
-setInterval(()=>{if(qrisOpen)tickQris()},1000);
-loadAll();lucide.createIcons();
-</script>
+<body>
+<div class="scanlines"></div>
+<div id="app">
+
+  <!-- ====== HEADER ====== -->
+  <div class="app-header">
+    <div class="store-avatar">
+      <img id="storePhoto" class="store-photo" style="display:none" />
+      <span id="storeInitial">🛒</span>
+    </div>
+    <div class="store-info">
+      <h1 id="storeName">Toko Digital</h1>
+      <p id="storeDesc"></p>
+    </div>
+    <button id="btnAdminDots" class="admin-dots hidden" title="Admin">⋮</button>
+  </div>
+
+  <!-- ====== PENDING TX BANNER ====== -->
+  <div id="pendingBanner" class="pending-banner hidden">
+    <span id="pendingBannerText"></span>
+    <button id="btnGotoPending" class="btn-mini">Lanjutkan</button>
+  </div>
+
+  <!-- ====== VIEW: HOME ====== -->
+  <div class="view" id="view-home">
+    <div class="balance-card">
+      <div class="balance-label">Saldo Kamu</div>
+      <div class="balance-amount" id="balanceAmount">Rp0</div>
+      <span class="tier-badge" id="tierBadge">Bronze</span>
+      <div class="tx-count" id="txCount">0 transaksi</div>
+    </div>
+
+    <div class="promo-banner">
+      <div class="promo-eyebrow">🔥 PROMO</div>
+      <div class="promo-title">Belanja Aman <span>Tanpa Ribet</span></div>
+      <div class="promo-sub">Checkout via saldo atau QRIS, otomatis & instan.</div>
+    </div>
+
+    <div class="section-label">Menu</div>
+    <div class="quick-grid">
+      <button class="quick-btn" data-nav="katalog" data-color="purple"><span class="icon-circle">🛍️</span><span>Katalog</span></button>
+      <button class="quick-btn" data-nav="pesanan" data-color="cyan"><span class="icon-circle">📦</span><span>Pesanan</span></button>
+      <button class="quick-btn" data-nav="stok" data-color="green"><span class="icon-circle">📊</span><span>Stok</span></button>
+      <button class="quick-btn" data-nav="topup" data-color="amber"><span class="icon-circle">💰</span><span>Top Up</span></button>
+      <button class="quick-btn" data-nav="referral" data-color="pink"><span class="icon-circle">🔗</span><span>Referral</span></button>
+      <button class="quick-btn" data-nav="testimoni" data-color="blue"><span class="icon-circle">⭐</span><span>Testimoni</span></button>
+    </div>
+  </div>
+
+  <!-- ====== VIEW: KATALOG ====== -->
+  <div class="view hidden" id="view-katalog">
+    <div class="search-bar"><input type="text" id="searchInput" placeholder="🔎 Cari produk..." /></div>
+    <div class="sort-bar">
+      <span class="sort-label">Urutkan:</span>
+      <select id="sortSelect" class="sort-select">
+        <option value="terbaru">Terbaru</option>
+        <option value="termurah">Termurah</option>
+        <option value="termahal">Termahal</option>
+        <option value="terlaris">Terlaris</option>
+      </select>
+    </div>
+    <div class="product-grid" id="productList"></div>
+  </div>
+
+  <!-- ====== VIEW: DETAIL PRODUK ====== -->
+  <div class="view hidden" id="view-detail">
+    <div class="product-detail" id="productDetail"></div>
+  </div>
+
+  <!-- ====== VIEW: SALDO SUCCESS ====== -->
+  <div class="view hidden" id="view-saldo-success">
+    <div class="product-detail">
+      <div class="saldo-success-icon">🎉</div>
+      <div class="detail-title" id="saldoSuccessTitle"></div>
+      <div class="saldo-success-detail" id="saldoSuccessDetail" style="white-space:pre-line"></div>
+      <button class="btn-primary" id="backFromSaldoSuccess">Kembali ke Katalog</button>
+    </div>
+  </div>
+
+  <!-- ====== VIEW: PESANAN ====== -->
+  <div class="view hidden" id="view-pesanan">
+    <div class="section-label">Pesanan Saya</div>
+    <div class="order-list" id="orderList"></div>
+  </div>
+
+  <!-- ====== VIEW: STOK LIVE ====== -->
+  <div class="view hidden" id="view-stok">
+    <div class="section-label">Stok Live</div>
+    <div class="product-list" id="stockList"></div>
+  </div>
+
+  <!-- ====== VIEW: TOP UP ====== -->
+  <div class="view hidden" id="view-topup">
+    <div class="section-label">Top Up Saldo</div>
+    <div class="topup-grid">
+      <button class="topup-btn" data-amt="10000">Rp10.000</button>
+      <button class="topup-btn" data-amt="25000">Rp25.000</button>
+      <button class="topup-btn" data-amt="50000">Rp50.000</button>
+      <button class="topup-btn" data-amt="100000">Rp100.000</button>
+      <button class="topup-btn" data-amt="250000">Rp250.000</button>
+      <button class="topup-btn" data-amt="500000">Rp500.000</button>
+    </div>
+    <p class="hint-text">Pilih nominal, bayar via QRIS, saldo otomatis masuk setelah dikonfirmasi.</p>
+  </div>
+
+  <!-- ====== VIEW: REFERRAL ====== -->
+  <div class="view hidden" id="view-referral">
+    <div class="section-label">Referral</div>
+    <div class="referral-card">
+      <div class="referral-title">Ajak Teman, Dapat Bonus</div>
+      <div class="referral-link" id="referralLink">-</div>
+      <button class="btn-secondary" id="btnCopyRef">📋 Salin Link</button>
+      <div class="referral-count" id="referralCount">0 orang diundang</div>
+    </div>
+  </div>
+
+  <!-- ====== VIEW: TESTIMONI ====== -->
+  <div class="view hidden" id="view-testimoni">
+    <div class="section-label">Testimoni Pembeli</div>
+    <div class="testimoni-list" id="testimoniList"></div>
+  </div>
+
+  <!-- ====== VIEW: QRIS ====== -->
+  <div class="view hidden" id="view-qris">
+    <div class="back-link" id="backFromQris">← Kembali</div>
+    <div class="qris-box">
+      <div class="qris-title" id="qrisTitle"></div>
+      <img class="qris-image" id="qrisImage" />
+      <div class="qris-amount" id="qrisAmount"></div>
+      <div class="qris-timer" id="qrisTimer">05:00</div>
+      <div class="qris-status" id="qrisStatus"></div>
+      <div class="qris-action-row">
+        <button class="btn-download-qris" id="btnDownloadQris">⬇️ Simpan QRIS</button>
+        <button class="btn-cancel-tx hidden" id="btnCancelTx">✕ Batalkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== BOTTOM NAV ====== -->
+  <div class="bottom-nav">
+    <button class="nav-btn active" data-nav="home"><span>🏠</span><span>Home</span></button>
+    <button class="nav-btn" data-nav="katalog"><span>🛍️</span><span>Katalog</span></button>
+    <button class="nav-btn" data-nav="pesanan"><span>📦</span><span>Pesanan</span></button>
+    <button class="nav-btn" data-nav="testimoni"><span>⭐</span><span>Testimoni</span></button>
+  </div>
+
+  <!-- ====== FLOATING CS BUTTON ====== -->
+  <button class="btn-cs-float" id="btnCS">💬</button>
+
+  <!-- ====== RATING MODAL ====== -->
+  <div class="modal-overlay hidden" id="ratingModal">
+    <div class="modal-box">
+      <div class="modal-title">Beri Rating</div>
+      <div class="star-picker" id="starPicker">
+        <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span>
+        <span data-star="4">★</span><span data-star="5">★</span>
+      </div>
+      <textarea class="rating-comment" id="ratingComment" placeholder="Komentar (opsional)..."></textarea>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCancelRating">Batal</button>
+        <button class="btn-primary" id="btnSubmitRating">Kirim</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== ADMIN DRAWER ====== -->
+  <div class="drawer-overlay hidden" id="adminOverlay"></div>
+  <div class="admin-drawer" id="adminDrawer">
+    <div class="drawer-header">
+      <span>Dashboard Admin</span>
+      <button class="drawer-close" id="btnCloseAdmin">✕</button>
+    </div>
+    <div class="drawer-tabs">
+      <button class="drawer-tab active" data-tab="produk">Produk</button>
+      <button class="drawer-tab" data-tab="user">User</button>
+      <button class="drawer-tab" data-tab="toko">Toko</button>
+      <button class="drawer-tab" data-tab="testimoni">Testimoni</button>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-pane" id="pane-produk">
+        <div class="admin-list" id="adminProductList"></div>
+      </div>
+      <div class="drawer-pane hidden" id="pane-user">
+        <label class="admin-label">ID Telegram User</label>
+        <input class="admin-input" id="adminUserId" placeholder="mis. 123456789" />
+        <button class="btn-secondary" id="btnLoadUser" style="margin-top:8px;width:100%">🔎 Cari</button>
+        <div class="admin-user-result hidden" id="adminUserResult">
+          <div class="admin-user-row">Saldo: <b id="adminUserBalance">Rp0</b></div>
+          <div class="admin-user-row">Tier: <b id="adminUserTier">-</b></div>
+          <div class="admin-user-row">Transaksi: <b id="adminUserTx">0</b></div>
+          <label class="admin-label">Nominal Saldo</label>
+          <input class="admin-input" type="number" id="adminUserAmount" placeholder="0" />
+          <div class="admin-btn-row">
+            <button class="btn-secondary" id="btnAddSaldo">➕ Tambah</button>
+            <button class="btn-secondary" id="btnSubSaldo">➖ Kurangi</button>
+          </div>
+          <label class="admin-label">Tier</label>
+          <div class="admin-tier-row">
+            <button class="tier-btn" data-tier="Bronze">Bronze</button>
+            <button class="tier-btn" data-tier="Silver">Silver</button>
+            <button class="tier-btn" data-tier="Gold">Gold</button>
+            <button class="tier-btn" data-tier="Unlimited">Unlimited</button>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-pane hidden" id="pane-toko">
+        <label class="admin-label">Nama Toko</label>
+        <input class="admin-input" id="adminStoreName" />
+        <label class="admin-label">Deskripsi Toko</label>
+        <textarea class="admin-input admin-textarea" id="adminStoreDesc"></textarea>
+        <button class="admin-save-btn" id="btnSaveStore" style="margin-top:10px">💾 Simpan</button>
+      </div>
+      <div class="drawer-pane hidden" id="pane-testimoni">
+        <div class="admin-list" id="adminRatingList"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="app.js"></script>
 </body>
 </html>
