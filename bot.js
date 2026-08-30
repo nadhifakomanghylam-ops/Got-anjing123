@@ -1326,7 +1326,6 @@ bot.action(/^paysaldo_(.+)_(.+)$/, async (ctx) => {
     });
   });
 });
-
 const approveTopupById = (topupId) => {
   return new Promise((resolve) => {
     db.get(`SELECT * FROM topups WHERE id = ?`, [topupId], (err, topup) => {
@@ -2494,6 +2493,8 @@ app.post('/api/checkout/product-saldo', requireTelegramAuth, async (req, res) =>
               const catatanHtml = prod.note ? formatMaybeLongHtml('📝 <b>CATATAN:</b>', prod.note) : '';
               const successText = `🎉 <b>PEMBELIAN BERHASIL (SALDO — via Web)!</b>\n\nDetail (#${orderId}):\n<pre>${escapeHtml(stockContents)}</pre>\n\n${catatanHtml}`;
               bot.telegram.sendMessage(userId, successText, { parse_mode: 'HTML' }).catch(() => {});
+              const testiText = `✅ *TRANSAKSI SUKSES (SALDO)*\n\n📦 *Produk:* ${prod.name} (${qty}x)\n💰 *Total:* Rp${totalCost.toLocaleString('id-ID')}\n👤 *Buyer:* ${username}\n\n_Terima kasih sudah belanja di toko kami!_`;
+              postTestiToGroup(testiText, null);
               res.json({
                 orderId,
                 productName: prod.name,
@@ -2527,6 +2528,33 @@ app.get('/api/topup-status/:id', requireTelegramAuth, (req, res) => {
   db.get(`SELECT id, status, user_id FROM topups WHERE id = ?`, [req.params.id], (err, row) => {
     if (!row || Number(row.user_id) !== Number(req.tgUser.id)) return res.status(404).json({ error: 'Not found' });
     res.json({ status: row.status });
+  });
+});
+
+// ====== BATALKAN PESANAN / TOP UP (selama masih PENDING) ======
+app.post('/api/cancel/order/:id', requireTelegramAuth, (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT * FROM orders WHERE id = ?`, [id], (err, order) => {
+    if (!order || Number(order.user_id) !== Number(req.tgUser.id)) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+    if (String(order.status).toUpperCase() !== 'PENDING') return res.status(400).json({ error: 'Pesanan ini sudah tidak bisa dibatalkan.' });
+    db.run(`UPDATE orders SET status = 'CANCELLED' WHERE id = ?`, [id], (dbErr) => {
+      if (dbErr) return res.status(500).json({ error: 'Gagal membatalkan pesanan.' });
+      if (order.qris_message_id) bot.telegram.deleteMessage(order.user_id, order.qris_message_id).catch(() => {});
+      res.json({ ok: true });
+    });
+  });
+});
+
+app.post('/api/cancel/topup/:id', requireTelegramAuth, (req, res) => {
+  const id = req.params.id;
+  db.get(`SELECT * FROM topups WHERE id = ?`, [id], (err, topup) => {
+    if (!topup || Number(topup.user_id) !== Number(req.tgUser.id)) return res.status(404).json({ error: 'Top up tidak ditemukan.' });
+    if (String(topup.status).toUpperCase() !== 'PENDING') return res.status(400).json({ error: 'Top up ini sudah tidak bisa dibatalkan.' });
+    db.run(`UPDATE topups SET status = 'CANCELLED' WHERE id = ?`, [id], (dbErr) => {
+      if (dbErr) return res.status(500).json({ error: 'Gagal membatalkan top up.' });
+      if (topup.qris_message_id) bot.telegram.deleteMessage(topup.user_id, topup.qris_message_id).catch(() => {});
+      res.json({ ok: true });
+    });
   });
 });
 
@@ -2666,4 +2694,5 @@ bot.launch().then(() => {
   }
 });
 console.log('Bot Telegram Running Full Edition...');
+
 
