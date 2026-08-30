@@ -33,17 +33,20 @@
 
   <!-- ====== VIEW: HOME ====== -->
   <div class="view" id="view-home">
+    <span class="tier-badge" id="tierBadge">👑 Bronze</span>
     <div class="balance-card">
-      <div class="balance-label">Saldo Kamu</div>
+      <div class="balance-top">
+        <span class="balance-icon">👛</span>
+        <span class="balance-label">Saldo Anda</span>
+      </div>
       <div class="balance-amount" id="balanceAmount">Rp0</div>
-      <span class="tier-badge" id="tierBadge">Bronze</span>
       <div class="tx-count" id="txCount">0 transaksi</div>
     </div>
 
     <div class="promo-banner">
       <div class="promo-eyebrow">🔥 PROMO HARI INI</div>
-      <div class="promo-title">Diskon Hingga <span>50%</span></div>
-      <div class="promo-sub">Untuk semua produk digital, checkout via saldo atau QRIS.</div>
+      <div class="promo-title" id="promoTitle">Belanja Aman & Instan</div>
+      <div class="promo-sub" id="promoSub">Checkout via saldo atau QRIS, otomatis & instan.</div>
       <span class="promo-icon">🛒</span>
     </div>
 
@@ -226,6 +229,8 @@
         <input class="admin-input" id="adminStoreName" />
         <label class="admin-label">Deskripsi Toko</label>
         <textarea class="admin-input admin-textarea" id="adminStoreDesc"></textarea>
+        <label class="admin-label">Diskon Promo (%) — 0 = nonaktif</label>
+        <input class="admin-input" type="number" id="adminStoreDiscount" min="0" max="100" placeholder="0" />
         <button class="admin-save-btn" id="btnSaveStore" style="margin-top:10px">💾 Simpan</button>
       </div>
       <div class="drawer-pane hidden" id="pane-testimoni">
