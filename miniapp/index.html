@@ -1,263 +1,259 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Morvane Store</title>
-<link rel="stylesheet" href="style.css">
-<link href="https://fonts.googleapis.com/css2?family=Creepster&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Morvane Store - Premium Digital Marketplace</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Outfit', 'sans-serif'] },
+                    colors: {
+                        bgMain: '#05030A', surface: '#0B0715', card: '#110B25',
+                        primary: '#7C3AED', neonPurple: '#8B5CF6', neonBlue: '#22D3EE', textSec: '#A1A1AA'
+                    },
+                    boxShadow: {
+                        'neon-purple': '0 0 15px rgba(139, 92, 246, 0.4)',
+                        'neon-blue': '0 0 15px rgba(34, 211, 238, 0.4)'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { background-color: #05030A; color: white; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #0B0715; }
+        ::-webkit-scrollbar-thumb { background: #7C3AED; border-radius: 10px; }
+        
+        .glass-panel {
+            background: rgba(17, 11, 37, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(139, 92, 246, 0.15);
+        }
+        .neon-border-hover:hover {
+            border-color: rgba(139, 92, 246, 0.6);
+            box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+        }
+    </style>
 </head>
-<body>
-<div class="scanlines"></div>
+<body class="antialiased min-h-screen pb-20 md:pb-0 md:pl-64 selection:bg-primary selection:text-white">
 
-<div id="app">
-
-  <!-- ====== BANNER TRANSAKSI PENDING ====== -->
-  <div class="pending-banner hidden" id="pendingBanner">
-    <span id="pendingBannerText"></span>
-    <button class="btn-mini" id="btnGotoPending">Lanjutkan</button>
-  </div>
-
-  <!-- ====== HEADER TOKO (persisten) ====== -->
-  <div class="app-header">
-    <button class="admin-dots hidden" id="btnAdminDots">⋮</button>
-    <div class="store-avatar">
-      <img class="store-photo" id="storePhoto" style="display:none" alt="">
-      <span id="storeInitial">💀</span>
-    </div>
-    <div class="store-info">
-      <h1 id="storeName">Morvane Store</h1>
-      <p id="storeDesc">Selamat datang di Morvane Store</p>
-    </div>
-  </div>
-
-  <!-- ====== SALDO / TIER (persisten) ====== -->
-  <div class="balance-card">
-    <div>
-      <div class="balance-label">// SALDO_KAMU</div>
-      <div class="balance-amount" id="balanceAmount">Rp0</div>
-      <div class="tx-count" id="txCount">0 transaksi</div>
-    </div>
-    <div class="tier-badge" id="tierBadge">Bronze</div>
-  </div>
-
-  <!-- ====== VIEW: HOME ====== -->
-  <div class="view" id="view-home">
-    <div class="promo-banner">
-      <span class="promo-eyebrow">📡 Stok live</span>
-      <div class="promo-title">Stok update <span>real-time</span>, gak pake nunggu</div>
-      <div class="promo-sub">Cek ketersediaan produk sebelum checkout biar nggak kehabisan pas mepet.</div>
-    </div>
-    <div class="section-label">Menu utama</div>
-    <div class="quick-grid">
-      <button class="quick-btn" data-color="purple" data-nav="katalog">
-        <span class="icon-circle">🛒</span>
-        <span>Katalog</span>
-      </button>
-      <button class="quick-btn" data-color="amber" data-nav="pesanan">
-        <span class="icon-circle">📦</span>
-        <span>Pesanan</span>
-      </button>
-      <button class="quick-btn" data-color="green" data-nav="saldo">
-        <span class="icon-circle">💳</span>
-        <span>Top Up</span>
-      </button>
-      <button class="quick-btn" data-color="blue" data-nav="referral">
-        <span class="icon-circle">🔗</span>
-        <span>Referral</span>
-      </button>
-      <button class="quick-btn" data-color="cyan" data-nav="stok">
-        <span class="icon-circle">📊</span>
-        <span>Stok Live</span>
-      </button>
-      <button class="quick-btn" data-color="pink" data-nav="testimoni">
-        <span class="icon-circle">💀</span>
-        <span>Testimoni</span>
-      </button>
-    </div>
-    <button class="btn-cs-float" id="btnCS">📞 Hubungi CS</button>
-  </div>
-
-  <!-- ====== VIEW: KATALOG ====== -->
-  <div class="view hidden" id="view-katalog">
-    <div class="search-bar">
-      <input type="text" id="searchInput" placeholder="🔍 Cari produk...">
-    </div>
-    <div class="sort-bar">
-      <span class="sort-label">Urutkan</span>
-      <select class="sort-select" id="sortSelect">
-        <option value="terbaru">Terbaru</option>
-        <option value="terlaris">Terlaris</option>
-        <option value="termurah">Termurah</option>
-        <option value="termahal">Termahal</option>
-      </select>
-    </div>
-    <div class="product-grid" id="productList"></div>
-  </div>
-
-  <!-- ====== VIEW: DETAIL PRODUK ====== -->
-  <div class="view hidden" id="view-detail">
-    <div class="product-detail" id="productDetail"></div>
-  </div>
-
-  <!-- ====== VIEW: PESANAN ====== -->
-  <div class="view hidden" id="view-pesanan">
-    <div class="order-list" id="orderList"></div>
-  </div>
-
-  <!-- ====== VIEW: SALDO / TOP UP ====== -->
-  <div class="view hidden" id="view-saldo">
-    <div class="topup-grid">
-      <button class="topup-btn" data-amt="10000">Rp10.000</button>
-      <button class="topup-btn" data-amt="25000">Rp25.000</button>
-      <button class="topup-btn" data-amt="50000">Rp50.000</button>
-      <button class="topup-btn" data-amt="100000">Rp100.000</button>
-      <button class="topup-btn" data-amt="250000">Rp250.000</button>
-      <button class="topup-btn" data-amt="500000">Rp500.000</button>
-    </div>
-    <div class="hint-text">Pilih nominal top up, lalu bayar via QRIS. Saldo masuk otomatis setelah pembayaran dikonfirmasi.</div>
-  </div>
-
-  <!-- ====== VIEW: REFERRAL ====== -->
-  <div class="view hidden" id="view-referral">
-    <div class="referral-card">
-      <div class="referral-title">🔗 Ajak teman, dapat cuan</div>
-      <div class="referral-link" id="referralLink">memuat...</div>
-      <button class="btn-primary" id="btnCopyRef">Salin Link</button>
-      <div class="referral-count" id="referralCount">0 orang diundang</div>
-    </div>
-  </div>
-
-  <!-- ====== VIEW: STOK LIVE ====== -->
-  <div class="view hidden" id="view-stok">
-    <div class="product-list" id="stockList"></div>
-  </div>
-
-  <!-- ====== VIEW: TESTIMONI ====== -->
-  <div class="view hidden" id="view-testimoni">
-    <div class="testimoni-list" id="testimoniList"></div>
-  </div>
-
-  <!-- ====== VIEW: QRIS PAYMENT ====== -->
-  <div class="view hidden" id="view-qris">
-    <div class="back-link" id="backFromQris">← Kembali</div>
-    <div class="qris-box">
-      <div class="qris-title" id="qrisTitle">Pembayaran</div>
-      <img class="qris-image" id="qrisImage" alt="QRIS">
-      <div class="qris-amount" id="qrisAmount">Rp0</div>
-      <div class="qris-timer" id="qrisTimer">10:00</div>
-      <div class="qris-status" id="qrisStatus">⏳ Menunggu pembayaran...</div>
-      <div class="qris-action-row">
-        <button class="btn-download-qris" id="btnDownloadQris">⬇ Simpan QRIS</button>
-        <button class="btn-cancel-tx hidden" id="btnCancelTx">✕ Batalkan</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ====== VIEW: SALDO SUCCESS ====== -->
-  <div class="view hidden" id="view-saldo-success">
-    <div class="back-link" id="backFromSaldoSuccess">← Kembali ke Katalog</div>
-    <div class="qris-box">
-      <div class="saldo-success-icon">🎉</div>
-      <div class="qris-title" id="saldoSuccessTitle">Pesanan berhasil</div>
-      <div class="saldo-success-detail" id="saldoSuccessDetail"></div>
-    </div>
-  </div>
-
-  <!-- ====== BOTTOM NAV ====== -->
-  <div class="bottom-nav">
-    <button class="nav-btn active" data-nav="home">🏠<span>Home</span></button>
-    <button class="nav-btn" data-nav="katalog">🛒<span>Katalog</span></button>
-    <button class="nav-btn" data-nav="pesanan">📦<span>Pesanan</span></button>
-    <button class="nav-btn" data-nav="saldo">💳<span>Saldo</span></button>
-    <button class="nav-btn" data-nav="referral">🔗<span>Referral</span></button>
-  </div>
-
-</div>
-
-<!-- ====== MODAL: RATING ====== -->
-<div class="modal-overlay hidden" id="ratingModal">
-  <div class="modal-box">
-    <div class="modal-title">💀 Beri rating pesananmu</div>
-    <div class="star-picker" id="starPicker">
-      <span data-star="1">★</span>
-      <span data-star="2">★</span>
-      <span data-star="3">★</span>
-      <span data-star="4">★</span>
-      <span data-star="5">★</span>
-    </div>
-    <textarea class="rating-comment" id="ratingComment" placeholder="Ceritain pengalaman belanjamu (opsional)..."></textarea>
-    <div class="modal-actions">
-      <button class="btn-secondary" id="btnCancelRating">Batal</button>
-      <button class="btn-primary" id="btnSubmitRating">Kirim Rating</button>
-    </div>
-  </div>
-</div>
-
-<!-- ====== ADMIN DRAWER ====== -->
-<div class="drawer-overlay hidden" id="adminOverlay"></div>
-<div class="admin-drawer" id="adminDrawer">
-  <div class="drawer-header">
-    <span>⚙ Admin Dashboard</span>
-    <button class="drawer-close" id="btnCloseAdmin">✕</button>
-  </div>
-  <div class="drawer-tabs">
-    <button class="drawer-tab active" data-tab="produk">Produk</button>
-    <button class="drawer-tab" data-tab="toko">Toko</button>
-    <button class="drawer-tab" data-tab="user">User</button>
-    <button class="drawer-tab" data-tab="testimoni">Testimoni</button>
-  </div>
-  <div class="drawer-body">
-
-    <div class="drawer-pane" id="pane-produk">
-      <div class="admin-list" id="adminProductList"></div>
-    </div>
-
-    <div class="drawer-pane hidden" id="pane-toko">
-      <label class="admin-label">Nama Toko</label>
-      <input class="admin-input" id="adminStoreName" type="text">
-      <label class="admin-label">Deskripsi Toko</label>
-      <textarea class="admin-input admin-textarea" id="adminStoreDesc"></textarea>
-      <button class="admin-save-btn" id="btnSaveStore">💾 Simpan</button>
-    </div>
-
-    <div class="drawer-pane hidden" id="pane-user">
-      <label class="admin-label">ID Telegram User</label>
-      <div class="admin-field-row">
-        <input class="admin-input" id="adminUserId" type="text" placeholder="Contoh: 123456789">
-      </div>
-      <button class="btn-secondary" id="btnLoadUser">Cari User</button>
-
-      <div class="admin-user-result hidden" id="adminUserResult">
-        <div class="admin-user-row">Saldo: <b id="adminUserBalance">Rp0</b></div>
-        <div class="admin-user-row">Tier: <b id="adminUserTier">Bronze</b></div>
-        <div class="admin-user-row">Transaksi: <b id="adminUserTx">0</b></div>
-
-        <label class="admin-label">Ubah Tier</label>
-        <div class="admin-tier-row">
-          <button class="tier-btn" data-tier="Bronze">Bronze</button>
-          <button class="tier-btn" data-tier="Silver">Silver</button>
-          <button class="tier-btn" data-tier="Gold">Gold</button>
-          <button class="tier-btn" data-tier="Platinum">Platinum</button>
+    <!-- SIDEBAR (Desktop Only) -->
+    <aside class="hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 bg-surface border-r border-white/5 z-50">
+        <div class="p-6 flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-primary to-neonBlue flex items-center justify-center shadow-neon-purple">
+                <i data-lucide="crown" class="text-white w-6 h-6"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg tracking-wide">Morvane Store</h1>
+                <p class="text-xs text-textSec">Admin Dashboard</p>
+            </div>
         </div>
-
-        <label class="admin-label">Nominal Saldo</label>
-        <input class="admin-input" id="adminUserAmount" type="number" placeholder="0">
-        <div class="admin-btn-row">
-          <button class="btn-secondary" id="btnAddSaldo">➕ Tambah</button>
-          <button class="btn-secondary" id="btnSubSaldo">➖ Kurangi</button>
+        <nav class="flex-1 px-4 space-y-2 mt-2">
+            <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl bg-primary/20 text-white border border-primary/50 shadow-neon-purple">
+                <i data-lucide="layout-dashboard" class="w-5 h-5 text-neonBlue"></i><span class="font-medium">Dashboard</span>
+            </a>
+            <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-textSec hover:bg-white/5 hover:text-white transition-all">
+                <i data-lucide="package" class="w-5 h-5"></i><span class="font-medium">Produk</span>
+            </a>
+            <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-textSec hover:bg-white/5 hover:text-white transition-all">
+                <i data-lucide="shopping-bag" class="w-5 h-5"></i><span class="font-medium">Pesanan</span>
+            </a>
+        </nav>
+        <div class="p-4 border-t border-white/10">
+            <button class="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-red-400 hover:bg-red-500/10 transition-colors">
+                <i data-lucide="log-out" class="w-5 h-5"></i><span>Logout</span>
+            </button>
         </div>
-      </div>
-    </div>
+    </aside>
 
-    <div class="drawer-pane hidden" id="pane-testimoni">
-      <div class="admin-list" id="adminRatingList"></div>
-    </div>
+    <!-- MAIN CONTENT -->
+    <main class="relative z-10">
+        <!-- HEADER -->
+        <header class="sticky top-0 z-40 bg-bgMain/80 backdrop-blur-md border-b border-white/5 px-4 md:px-8 py-4 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <button class="md:hidden p-2 rounded-lg hover:bg-white/10"><i data-lucide="menu" class="w-6 h-6 text-white"></i></button>
+                <div>
+                    <h2 class="text-xl font-bold text-white tracking-wider flex items-center gap-2">
+                        Morvane Store <i data-lucide="badge-check" class="w-5 h-5 text-neonBlue fill-neonBlue/20"></i>
+                    </h2>
+                    <p class="text-[10px] text-neonPurple uppercase tracking-widest font-semibold">Mini App</p>
+                </div>
+            </div>
+            <button class="relative p-2 rounded-full hover:bg-white/10 transition">
+                <i data-lucide="bell" class="w-6 h-6 text-white"></i>
+                <span class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-bgMain"></span>
+            </button>
+        </header>
 
-  </div>
-</div>
+        <div class="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+            
+            <!-- WELCOME & SALDO -->
+            <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-2 space-y-4">
+                    <div>
+                        <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">Halo, Andri 👋</h1>
+                        <p class="text-textSec text-lg">Selamat datang di Morvane Store</p>
+                    </div>
+                    <div class="inline-flex items-center gap-2 bg-yellow-500/10 border border-yellow-500/30 px-4 py-2 rounded-full cursor-pointer hover:bg-yellow-500/20 transition">
+                        <i data-lucide="crown" class="w-4 h-4 text-yellow-400 fill-yellow-400"></i>
+                        <span class="text-yellow-400 text-sm font-bold">Member Gold</span>
+                        <i data-lucide="chevron-right" class="w-4 h-4 text-yellow-400/50"></i>
+                    </div>
+                </div>
 
-<script src="app.js"></script>
+                <div class="glass-panel rounded-2xl p-6 relative overflow-hidden flex flex-col justify-center items-start md:items-end md:text-right neon-border-hover transition-all duration-300">
+                    <div class="absolute -right-6 -top-6 w-32 h-32 bg-primary/20 blur-3xl rounded-full"></div>
+                    <p class="text-textSec text-sm mb-1 font-medium">Saldo Anda</p>
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-8 h-8 rounded-lg bg-neonBlue/20 flex items-center justify-center"><i data-lucide="wallet" class="w-5 h-5 text-neonBlue"></i></div>
+                        <h2 class="text-3xl font-bold text-white">Rp 125.000</h2>
+                    </div>
+                    <button class="bg-primary hover:bg-neonPurple text-white font-bold px-5 py-2 rounded-xl shadow-neon-purple transition-all flex items-center gap-2 text-sm">
+                        <i data-lucide="plus" class="w-4 h-4"></i> Top Up
+                    </button>
+                </div>
+            </section>
+
+            <!-- PROMO BANNER -->
+            <section class="relative h-48 md:h-56 rounded-2xl overflow-hidden group cursor-pointer border border-white/5 hover:border-neonPurple/50 transition-all">
+                <div class="absolute inset-0 bg-gradient-to-r from-[#2E1065] via-[#4C1D95] to-[#0B0715] opacity-90"></div>
+                <img src="https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?q=80&w=2070&auto=format&fit=crop" alt="Promo" class="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-40 group-hover:scale-105 transition-transform duration-700" />
+                <div class="absolute inset-0 p-6 md:p-8 flex flex-col justify-center z-10">
+                    <span class="bg-white/10 backdrop-blur-md border border-white/20 text-white text-xs font-bold px-3 py-1.5 rounded-lg w-fit mb-3 flex items-center gap-2">🔥 PROMO HARI INI</span>
+                    <h2 class="text-3xl md:text-4xl font-black text-white mb-2 leading-tight">DISKON HINGGA <span class="text-neonBlue">50%</span></h2>
+                    <p class="text-white/80 text-sm md:text-base mb-6 max-w-md">Dapatkan harga spesial untuk semua produk digital premium.</p>
+                    <button class="bg-white text-primary font-bold px-6 py-3 rounded-xl w-fit text-sm hover:scale-105 hover:shadow-[0_0_20px_rgba(255,255,255,0.3)] transition-all flex items-center gap-2">🛒 Belanja Sekarang</button>
+                </div>
+                <div class="absolute right-10 bottom-10 opacity-80 hidden md:block"><i data-lucide="percent" class="w-32 h-32 text-neonBlue rotate-12 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]"></i></div>
+            </section>
+
+            <!-- CATEGORIES -->
+            <section>
+                <div class="flex justify-between items-center mb-5">
+                    <h3 class="text-xl font-bold text-white">Kategori</h3>
+                    <button class="text-neonPurple text-sm font-medium hover:text-neonBlue transition flex items-center gap-1">Lihat semua <i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="glass-panel p-4 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:-translate-y-1 hover:border-neonPurple/50 transition-all duration-300 group">
+                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary/30 to-transparent flex items-center justify-center group-hover:shadow-neon-purple transition-shadow"><i data-lucide="gamepad-2" class="w-8 h-8 text-neonPurple"></i></div>
+                        <span class="text-white font-semibold">Game</span>
+                    </div>
+                    <div class="glass-panel p-4 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:-translate-y-1 hover:border-neonPurple/50 transition-all duration-300 group">
+                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-neonBlue/20 to-transparent flex items-center justify-center group-hover:shadow-neon-blue transition-shadow"><i data-lucide="gem" class="w-8 h-8 text-neonBlue"></i></div>
+                        <span class="text-white font-semibold">Premium</span>
+                    </div>
+                    <div class="glass-panel p-4 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:-translate-y-1 hover:border-neonPurple/50 transition-all duration-300 group">
+                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-transparent flex items-center justify-center group-hover:shadow-[0_0_15px_rgba(6,182,212,0.4)] transition-shadow"><i data-lucide="credit-card" class="w-8 h-8 text-cyan-400"></i></div>
+                        <span class="text-white font-semibold">Digital</span>
+                    </div>
+                    <div class="glass-panel p-4 rounded-2xl flex flex-col items-center justify-center gap-3 cursor-pointer hover:-translate-y-1 hover:border-neonPurple/50 transition-all duration-300 group">
+                        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-500/20 to-transparent flex items-center justify-center group-hover:shadow-[0_0_15px_rgba(249,115,22,0.4)] transition-shadow"><i data-lucide="shopping-basket" class="w-8 h-8 text-orange-400"></i></div>
+                        <span class="text-white font-semibold">Lainnya</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- POPULAR PRODUCTS -->
+            <section>
+                <div class="flex justify-between items-center mb-5">
+                    <h3 class="text-xl font-bold text-white">Produk Populer</h3>
+                    <button class="text-neonPurple text-sm font-medium hover:text-neonBlue transition flex items-center gap-1">Lihat semua <i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+                    <!-- Card 1 -->
+                    <div class="bg-card rounded-2xl overflow-hidden border border-white/5 hover:border-neonPurple/60 transition-all duration-300 group hover:-translate-y-1 hover:shadow-neon-purple">
+                        <div class="relative h-40 overflow-hidden"><img src="https://wallpapers.com/images/hd/mobile-legends-background-1920-x-1080-nu2yqjg7v8kz5w9p.jpg" alt="MLBB" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"><div class="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent"></div></div>
+                        <div class="p-4">
+                            <h4 class="text-white font-bold text-lg mb-1 truncate">Mobile Legends</h4>
+                            <div class="flex items-center gap-1 mb-3"><i data-lucide="gem" class="w-3 h-3 text-neonBlue fill-neonBlue"></i><span class="text-neonBlue text-sm font-medium">86 Diamond</span></div>
+                            <div class="flex items-center justify-between mt-2"><span class="text-white font-bold text-lg">Rp 20.000</span></div>
+                            <button class="w-full mt-4 bg-primary hover:bg-neonPurple text-white font-bold py-2.5 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95">Beli</button>
+                        </div>
+                    </div>
+                    <!-- Card 2 -->
+                    <div class="bg-card rounded-2xl overflow-hidden border border-white/5 hover:border-neonPurple/60 transition-all duration-300 group hover:-translate-y-1 hover:shadow-neon-purple">
+                        <div class="relative h-40 overflow-hidden"><img src="https://wallpapers.com/images/hd/pubg-mobile-4k-desktop-qw5r7t8y9u0i1o2p.jpg" alt="PUBG" class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"><div class="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent"></div></div>
+                        <div class="p-4">
+                            <h4 class="text-white font-bold text-lg mb-1 truncate">PUBG Mobile</h4>
+                            <div class="flex items-center gap-1 mb-3"><span class="bg-yellow-500/20 text-yellow-400 text-[10px] font-bold px-1.5 py-0.5 rounded">UC</span><span class="text-white text-sm font-medium">60 UC</span></div>
+                            <div class="flex items-center justify-between mt-2"><span class="text-white font-bold text-lg">Rp 15.000</span></div>
+                            <button class="w-full mt-4 bg-primary hover:bg-neonPurple text-white font-bold py-2.5 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95">Beli</button>
+                        </div>
+                    </div>
+                    <!-- Card 3 -->
+                    <div class="bg-card rounded-2xl overflow-hidden border border-white/5 hover:border-neonPurple/60 transition-all duration-300 group hover:-translate-y-1 hover:shadow-neon-purple">
+                        <div class="relative h-40 overflow-hidden flex items-center justify-center bg-[#1DB954]/10"><i data-lucide="music" class="w-16 h-16 text-[#1DB954]"></i><div class="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent"></div></div>
+                        <div class="p-4">
+                            <h4 class="text-white font-bold text-lg mb-1 truncate">Spotify Premium</h4>
+                            <div class="flex items-center gap-1 mb-3"><span class="text-textSec text-sm font-medium">1 Bulan</span></div>
+                            <div class="flex items-center justify-between mt-2"><span class="text-white font-bold text-lg">Rp 15.000</span></div>
+                            <button class="w-full mt-4 bg-primary hover:bg-neonPurple text-white font-bold py-2.5 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95">Beli</button>
+                        </div>
+                    </div>
+                    <!-- Card 4 -->
+                    <div class="bg-card rounded-2xl overflow-hidden border border-white/5 hover:border-neonPurple/60 transition-all duration-300 group hover:-translate-y-1 hover:shadow-neon-purple">
+                        <div class="relative h-40 overflow-hidden flex items-center justify-center bg-[#FF0000]/10"><i data-lucide="youtube" class="w-16 h-16 text-[#FF0000]"></i><div class="absolute inset-0 bg-gradient-to-t from-card via-transparent to-transparent"></div></div>
+                        <div class="p-4">
+                            <h4 class="text-white font-bold text-lg mb-1 truncate">YouTube Premium</h4>
+                            <div class="flex items-center gap-1 mb-3"><span class="text-textSec text-sm font-medium">1 Bulan</span></div>
+                            <div class="flex items-center justify-between mt-2"><span class="text-white font-bold text-lg">Rp 17.000</span></div>
+                            <button class="w-full mt-4 bg-primary hover:bg-neonPurple text-white font-bold py-2.5 rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-95">Beli</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TRUST BADGES -->
+            <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                <div class="glass-panel p-4 rounded-xl flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-full bg-neonBlue/10 flex items-center justify-center shrink-0"><i data-lucide="shield-check" class="w-6 h-6 text-neonBlue"></i></div>
+                    <div><h4 class="text-white font-bold">Transaksi Aman</h4><p class="text-textSec text-xs">Semua transaksi dijamin 100% aman</p></div>
+                </div>
+                <div class="glass-panel p-4 rounded-xl flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0"><i data-lucide="zap" class="w-6 h-6 text-primary"></i></div>
+                    <div><h4 class="text-white font-bold">Proses Cepat</h4><p class="text-textSec text-xs">Pesanan diproses otomatis dalam hitungan detik</p></div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- BOTTOM NAVIGATION (Mobile Only) -->
+    <nav class="fixed bottom-0 left-0 w-full bg-surface/90 backdrop-blur-xl border-t border-white/10 md:hidden z-50 pb-safe">
+        <div class="flex justify-around items-center h-16 px-2">
+            <a href="#" class="flex flex-col items-center justify-center w-full h-full gap-1 text-neonPurple"><i data-lucide="home" class="w-6 h-6 fill-neonPurple/20"></i><span class="text-[10px] font-bold">Beranda</span></a>
+            <a href="#" class="flex flex-col items-center justify-center w-full h-full gap-1 text-textSec hover:text-white transition"><i data-lucide="shopping-bag" class="w-6 h-6"></i><span class="text-[10px] font-medium">Produk</span></a>
+            <a href="#" class="flex flex-col items-center justify-center w-full h-full gap-1 text-textSec hover:text-white transition"><i data-lucide="receipt" class="w-6 h-6"></i><span class="text-[10px] font-medium">Pesanan</span></a>
+            <a href="#" class="flex flex-col items-center justify-center w-full h-full gap-1 text-textSec hover:text-white transition"><i data-lucide="user" class="w-6 h-6"></i><span class="text-[10px] font-medium">Profile</span></a>
+        </div>
+    </nav>
+
+    <script>
+        lucide.createIcons();
+        if (window.Telegram && window.Telegram.WebApp) {
+            const tg = window.Telegram.WebApp;
+            tg.ready();
+            tg.expand();
+            tg.setHeaderColor('#05030A'); 
+            tg.setBackgroundColor('#05030A');
+        }
+    </script>
 </body>
 </html>
