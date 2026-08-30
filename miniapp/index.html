@@ -5,10 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Store</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="scanlines"></div>
 <div id="app">
 
   <!-- ====== HEADER ====== -->
@@ -18,10 +19,10 @@
       <span id="storeInitial">🛒</span>
     </div>
     <div class="store-info">
-      <h1 id="storeName">Toko Digital</h1>
+      <h1><span id="storeName">Toko Digital</span><span class="store-verified">✓</span></h1>
       <p id="storeDesc"></p>
     </div>
-    <button id="btnAdminDots" class="admin-dots hidden" title="Admin">⋮</button>
+    <button id="btnAdminDots" class="admin-dots hidden" title="Admin">⚙️</button>
   </div>
 
   <!-- ====== PENDING TX BANNER ====== -->
@@ -40,9 +41,10 @@
     </div>
 
     <div class="promo-banner">
-      <div class="promo-eyebrow">🔥 PROMO</div>
-      <div class="promo-title">Belanja Aman <span>Tanpa Ribet</span></div>
-      <div class="promo-sub">Checkout via saldo atau QRIS, otomatis & instan.</div>
+      <div class="promo-eyebrow">🔥 PROMO HARI INI</div>
+      <div class="promo-title">Diskon Hingga <span>50%</span></div>
+      <div class="promo-sub">Untuk semua produk digital, checkout via saldo atau QRIS.</div>
+      <span class="promo-icon">🛒</span>
     </div>
 
     <div class="section-label">Menu</div>
@@ -54,6 +56,12 @@
       <button class="quick-btn" data-nav="referral" data-color="pink"><span class="icon-circle">🔗</span><span>Referral</span></button>
       <button class="quick-btn" data-nav="testimoni" data-color="blue"><span class="icon-circle">⭐</span><span>Testimoni</span></button>
     </div>
+
+    <div class="home-section-head">
+      <div class="section-label" style="margin:0">Produk Populer</div>
+      <button class="see-all-link" data-nav="katalog">Lihat semua →</button>
+    </div>
+    <div class="home-product-scroll" id="homeProductList"></div>
   </div>
 
   <!-- ====== VIEW: KATALOG ====== -->
@@ -176,14 +184,15 @@
   <div class="drawer-overlay hidden" id="adminOverlay"></div>
   <div class="admin-drawer" id="adminDrawer">
     <div class="drawer-header">
-      <span>Dashboard Admin</span>
+      <div class="drawer-avatar">👑</div>
+      <div class="drawer-heading"><b>Admin</b><span>Dashboard</span></div>
       <button class="drawer-close" id="btnCloseAdmin">✕</button>
     </div>
     <div class="drawer-tabs">
-      <button class="drawer-tab active" data-tab="produk">Produk</button>
-      <button class="drawer-tab" data-tab="user">User</button>
-      <button class="drawer-tab" data-tab="toko">Toko</button>
-      <button class="drawer-tab" data-tab="testimoni">Testimoni</button>
+      <button class="drawer-tab active" data-tab="produk">📦 Produk</button>
+      <button class="drawer-tab" data-tab="user">👤 User</button>
+      <button class="drawer-tab" data-tab="toko">🏪 Toko</button>
+      <button class="drawer-tab" data-tab="testimoni">⭐ Testimoni</button>
     </div>
     <div class="drawer-body">
       <div class="drawer-pane" id="pane-produk">
