@@ -1,229 +1,134 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Toko Mini App</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Creepster&family=Share+Tech+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <div class="scanlines"></div>
-  <div id="app">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Andri Store — Mini App</title>
+<style>
+  :root{
+    --bg-main:#0B0714;
+    --bg-secondary:#130D24;
+    --bg-card:#1C1430;
+    --purple:#8B5CF6;
+    --purple-bright:#A78BFA;
+    --cyan:#22D3EE;
+    --green:#10B981;
+    --red:#EF4444;
+    --text-main:#F8FAFC;
+    --text-sub:#94A3B8;
+  }
 
-    <!-- PENDING TX BANNER -->
-    <div class="pending-banner hidden" id="pendingBanner">
-      <span id="pendingBannerText">⚠ Ada transaksi belum kelar...</span>
-      <button class="btn-mini" id="btnGotoPending">Lanjutkan »</button>
-    </div>
+  *{box-sizing:border-box; margin:0; padding:0;}
 
-    <!-- HEADER -->
-    <header class="app-header">
-      <button class="admin-dots hidden" id="btnAdminDots" title="Dashboard Admin">⋮</button>
-      <div class="store-avatar" id="storeAvatar">
-        <img id="storePhoto" class="store-photo" src="" alt="" style="display:none" />
-        <span id="storeInitial">☠️</span>
-      </div>
-      <div class="store-info">
-        <h1 id="storeName">Memuat...</h1>
-        <p id="storeDesc"></p>
-      </div>
-    </header>
+  body{
+    background:#000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+    font-family:'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    padding:20px;
+  }
 
-    <!-- BALANCE CARD -->
-    <section class="balance-card" id="balanceCard">
-      <div>
-        <div class="balance-label">// SALDO_KAMU</div>
-        <div class="balance-amount" id="balanceAmount">Rp0</div>
-        <div class="tx-count" id="txCount">0 transaksi</div>
-      </div>
-      <div class="tier-badge" id="tierBadge">Bronze</div>
-    </section>
+  .phone{
+    position:relative;
+    width:390px;
+    height:844px;
+    background:var(--bg-main);
+    border-radius:44px;
+    border:8px solid #050208;
+    box-shadow:
+      0 0 0 1px rgba(139,92,246,0.25),
+      0 0 60px rgba(139,92,246,0.35),
+      0 40px 80px rgba(0,0,0,0.8);
+    overflow:hidden;
+  }
 
-    <!-- MAIN VIEWS -->
-    <main id="views">
+  .screen{
+    position:relative;
+    width:100%;
+    height:100%;
+    overflow-y:auto;
+    overflow-x:hidden;
+    scrollbar-width:none;
+  }
+  .screen::-webkit-scrollbar{display:none;}
 
-      <!-- HOME -->
-      <section class="view" id="view-home">
-        <div class="quick-grid">
-          <button class="quick-btn" data-nav="katalog" data-color="blue"><span class="icon-circle">🛒</span><span>Katalog</span></button>
-          <button class="quick-btn" data-nav="pesanan" data-color="amber"><span class="icon-circle">📦</span><span>Pesanan</span></button>
-          <button class="quick-btn" data-nav="saldo" data-color="green"><span class="icon-circle">💳</span><span>Top Up</span></button>
-          <button class="quick-btn" data-nav="referral" data-color="purple"><span class="icon-circle">🔗</span><span>Referral</span></button>
-          <button class="quick-btn" data-nav="stok" data-color="cyan"><span class="icon-circle">📊</span><span>Stok Live</span></button>
-          <button class="quick-btn" data-nav="testimoni" data-color="pink"><span class="icon-circle">💀</span><span>Testimoni</span></button>
-        </div>
-        <button class="btn-cs-float" id="btnCS">📞 Hubungi CS</button>
-      </section>
+  /* ambient glow blobs */
+  .glow-blob{
+    position:absolute;
+    border-radius:50%;
+    filter:blur(80px);
+    pointer-events:none;
+    z-index:0;
+  }
+  .glow-1{width:280px;height:280px;background:rgba(139,92,246,0.25); top:-80px; right:-100px;}
+  .glow-2{width:240px;height:240px;background:rgba(34,211,238,0.12); top:400px; left:-100px;}
 
-      <!-- KATALOG -->
-      <section class="view hidden" id="view-katalog">
-        <div class="search-bar">
-          <input type="text" id="searchInput" placeholder="&gt; cari_produk..." />
-        </div>
-        <div class="sort-bar">
-          <span class="sort-label">Urutkan:</span>
-          <select id="sortSelect" class="sort-select">
-            <option value="terbaru">Terbaru</option>
-            <option value="termurah">Termurah</option>
-            <option value="termahal">Termahal</option>
-            <option value="terlaris">Terlaris</option>
-          </select>
-        </div>
-        <div id="productList" class="product-grid"></div>
-      </section>
+  /* status bar */
+  .statusbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 26px 6px 26px;
+    font-size:15px; font-weight:600; color:var(--text-main);
+    position:relative; z-index:2;
+  }
+  .status-icons{display:flex; align-items:center; gap:6px;}
+  .telegram-pill{
+    position:absolute; left:50%; transform:translateX(-50%);
+    top:12px;
+    background:linear-gradient(135deg,#2AABEE,#229ED9);
+    color:#fff; font-size:11px; font-weight:700;
+    padding:5px 12px; border-radius:20px;
+    display:flex; align-items:center; gap:5px;
+    box-shadow:0 0 16px rgba(42,171,238,0.6);
+    letter-spacing:0.3px;
+  }
 
-      <!-- PRODUCT DETAIL -->
-      <section class="view hidden" id="view-detail">
-        <div id="productDetail" class="product-detail"></div>
-      </section>
+  /* header */
+  .header{
+    position:relative; z-index:2;
+    padding:26px 20px 14px 20px;
+    display:flex; align-items:flex-start; justify-content:space-between;
+  }
+  .header-left{
+    display:flex; flex-direction:column; gap:6px; max-width:150px;
+  }
+  .hamburger{
+    width:34px; height:34px;
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(139,92,246,0.12);
+    border:1px solid rgba(139,92,246,0.4);
+    border-radius:10px;
+    box-shadow:0 0 12px rgba(139,92,246,0.35);
+  }
+  .hamburger svg{width:16px;height:16px;}
+  .header-hint{
+    display:flex; align-items:center; gap:4px;
+    font-size:10.5px; color:var(--text-sub); line-height:1.35;
+    margin-top:2px;
+  }
+  .header-hint .arrow{color:var(--purple-bright); font-size:12px;}
 
-      <!-- SALDO PURCHASE SUCCESS -->
-      <section class="view hidden" id="view-saldo-success">
-        <div class="qris-box">
-          <div class="back-link" id="backFromSaldoSuccess">← Kembali</div>
-          <div class="saldo-success-icon">🎉</div>
-          <div class="qris-title" id="saldoSuccessTitle">Pembelian Berhasil</div>
-          <div class="saldo-success-detail" id="saldoSuccessDetail"></div>
-        </div>
-      </section>
+  .header-center{
+    position:absolute; left:50%; top:26px; transform:translateX(-50%);
+    text-align:center; white-space:nowrap;
+  }
+  .header-center .title{
+    font-size:19px; font-weight:800; color:var(--text-main);
+    display:flex; align-items:center; gap:5px; justify-content:center;
+  }
+  .header-center .badge{
+    width:16px; height:16px; border-radius:50%;
+    background:linear-gradient(135deg,var(--purple),var(--cyan));
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 0 8px rgba(139,92,246,0.7);
+  }
+  .header-center .badge svg{width:9px;height:9px; color:#fff;}
+  .header-center .subtitle{
+    font-size:11px; color:var(--purple-bright); margin-top:2px; font-weight:600;
+  }
 
-      <!-- PESANAN -->
-      <section class="view hidden" id="view-pesanan">
-        <div id="orderList" class="order-list"></div>
-      </section>
-
-      <!-- SALDO / TOPUP -->
-      <section class="view hidden" id="view-saldo">
-        <div class="topup-grid">
-          <button class="topup-btn" data-amt="1000">➕ Rp1.000</button>
-          <button class="topup-btn" data-amt="5000">➕ Rp5.000</button>
-          <button class="topup-btn" data-amt="10000">➕ Rp10.000</button>
-          <button class="topup-btn" data-amt="25000">➕ Rp25.000</button>
-          <button class="topup-btn" data-amt="50000">➕ Rp50.000</button>
-          <button class="topup-btn" data-amt="100000">➕ Rp100.000</button>
-        </div>
-        <p class="hint-text">Tap nominal, kamu bakal diarahkan buat lanjutin pembayaran (QRIS).</p>
-      </section>
-
-      <!-- REFERRAL -->
-      <section class="view hidden" id="view-referral">
-        <div class="referral-card">
-          <div class="referral-title">🔗 Link Referral Kamu</div>
-          <div class="referral-link" id="referralLink">-</div>
-          <button class="btn-primary" id="btnCopyRef">📋 Salin Link</button>
-          <div class="referral-count" id="referralCount">0 orang diundang</div>
-        </div>
-      </section>
-
-      <!-- STOK LIVE -->
-      <section class="view hidden" id="view-stok">
-        <div id="stockList" class="product-list"></div>
-      </section>
-
-      <!-- TESTIMONI -->
-      <section class="view hidden" id="view-testimoni">
-        <div id="testimoniList" class="testimoni-list"></div>
-      </section>
-
-      <!-- QRIS PAYMENT -->
-      <section class="view hidden" id="view-qris">
-        <div class="qris-box">
-          <div class="back-link" id="backFromQris">← Batal</div>
-          <div class="qris-title" id="qrisTitle">Pesanan</div>
-          <img id="qrisImage" class="qris-image" src="" alt="QRIS" />
-          <div class="qris-action-row">
-            <button id="btnDownloadQris" class="btn-download-qris">⬇️ Unduh QRIS</button>
-            <button id="btnCancelTx" class="btn-cancel-tx">✕ Batalkan</button>
-          </div>
-          <div class="qris-amount" id="qrisAmount">Rp0</div>
-          <div class="qris-timer" id="qrisTimer">--:--</div>
-          <div class="qris-status" id="qrisStatus">⏳ Menunggu pembayaran...</div>
-        </div>
-      </section>
-
-    </main>
-  </div>
-
-  <!-- BOTTOM NAV -->
-  <nav class="bottom-nav">
-    <button class="nav-btn active" data-nav="home">🏠<span>Home</span></button>
-    <button class="nav-btn" data-nav="katalog">🛒<span>Katalog</span></button>
-    <button class="nav-btn" data-nav="pesanan">📦<span>Pesanan</span></button>
-    <button class="nav-btn" data-nav="saldo">💳<span>Saldo</span></button>
-    <button class="nav-btn" data-nav="referral">🔗<span>Referral</span></button>
-  </nav>
-
-  <!-- RATING MODAL -->
-  <div class="modal-overlay hidden" id="ratingModal">
-    <div class="modal-box">
-      <div class="modal-title">💀 Kasih Rating Pesanan</div>
-      <div class="star-picker" id="starPicker">
-        <span data-star="1">★</span><span data-star="2">★</span><span data-star="3">★</span><span data-star="4">★</span><span data-star="5">★</span>
-      </div>
-      <textarea id="ratingComment" class="rating-comment" placeholder="Komentar (opsional)..." maxlength="300"></textarea>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="btnCancelRating">Batal</button>
-        <button class="btn-primary" id="btnSubmitRating">Kirim</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ADMIN DRAWER -->
-  <div class="drawer-overlay hidden" id="adminOverlay"></div>
-  <aside class="admin-drawer" id="adminDrawer">
-    <div class="drawer-header">
-      <span>⋮ DASHBOARD_ADMIN</span>
-      <button class="drawer-close" id="btnCloseAdmin">✕</button>
-    </div>
-    <div class="drawer-tabs">
-      <button class="drawer-tab active" data-tab="produk">Produk</button>
-      <button class="drawer-tab" data-tab="toko">Toko</button>
-      <button class="drawer-tab" data-tab="user">User</button>
-      <button class="drawer-tab" data-tab="testimoni">Testimoni</button>
-    </div>
-    <div class="drawer-body">
-      <div class="drawer-pane" id="pane-produk">
-        <div id="adminProductList" class="admin-list"></div>
-      </div>
-      <div class="drawer-pane hidden" id="pane-toko">
-        <label class="admin-label">Nama Toko</label>
-        <input type="text" id="adminStoreName" class="admin-input" />
-        <label class="admin-label">Deskripsi Toko</label>
-        <textarea id="adminStoreDesc" class="admin-input admin-textarea"></textarea>
-        <button class="btn-primary" id="btnSaveStore">💾 Simpan</button>
-      </div>
-      <div class="drawer-pane hidden" id="pane-user">
-        <label class="admin-label">ID Telegram User</label>
-        <input type="text" id="adminUserId" class="admin-input" placeholder="cth: 123456789" inputmode="numeric" />
-        <button class="btn-primary" id="btnLoadUser">🔍 Cari User</button>
-        <div id="adminUserResult" class="admin-user-result hidden">
-          <div class="admin-user-row">💳 Saldo: <b id="adminUserBalance">Rp0</b></div>
-          <div class="admin-user-row">🏷️ Tier: <b id="adminUserTier">Bronze</b></div>
-          <div class="admin-user-row">📦 Transaksi: <b id="adminUserTx">0</b></div>
-          <label class="admin-label">Nominal Saldo</label>
-          <input type="number" id="adminUserAmount" class="admin-input" placeholder="cth: 10000" />
-          <div class="admin-btn-row">
-            <button class="btn-secondary" id="btnAddSaldo">➕ Tambah</button>
-            <button class="btn-secondary" id="btnSubSaldo">➖ Kurangi</button>
-          </div>
-          <label class="admin-label">Ubah Tier</label>
-          <div class="admin-tier-row">
-            <button class="tier-btn" data-tier="Bronze">🥉 Bronze</button>
-            <button class="tier-btn" data-tier="Silver">🥈 Silver</button>
-            <button class="tier-btn" data-tier="Gold">🥇 Gold</button>
-            <button class="tier-btn" data-tier="Owner">👑 Owner</button>
-          </div>
-        </div>
-      </div>
-      <div class="drawer-pane hidden" id="pane-testimoni">
-        <div id="adminRatingList" class="admin-list"></div>
-      </div>
-    </div>
-  </aside>
-
-  <script src="app.js"></script>
-</body>
-</html>
+  .bell{
+    position:relative;
+    width:34px; height:34px;
+    display:flex; align-items:center; justify-content:center;
