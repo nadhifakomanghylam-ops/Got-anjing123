@@ -117,8 +117,8 @@ const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&a
 // data mentah disimpan supaya bisa diurutkan ulang tanpa fetch ulang ke server.
 let CATALOG_ROWS = [];
 
-const renderProductGrid = (rows) => {
-  const container = document.getElementById('productList');
+const renderProductGrid = (rows, containerId = 'productList') => {
+  const container = document.getElementById(containerId);
   if (!rows || rows.length === 0) {
     container.innerHTML = `<div class="empty-state">💀 Belum ada produk.</div>`;
     return;
@@ -163,6 +163,14 @@ const loadCatalog = async (q = '') => {
   document.getElementById('productList').innerHTML = `<div class="loading-spinner">Memuat produk...</div>`;
   CATALOG_ROWS = await API(`/api/products${q ? `?q=${encodeURIComponent(q)}` : ''}`);
   applySortAndRender();
+};
+
+// Preview singkat di beranda (maks 8 produk terbaru), pakai kartu yang sama dgn katalog
+const loadHomeProducts = async () => {
+  try {
+    const rows = await API('/api/products');
+    renderProductGrid((rows || []).slice(0, 8), 'homeProductList');
+  } catch (e) { /* diamkan */ }
 };
 
 const loadStockLive = async () => {
@@ -759,6 +767,7 @@ const loadAdminRatings = async () => {
     await loadStore();
     await loadMe();
     await checkPending();
+    loadHomeProducts();
   } catch (e) {
     console.error(e);
   }
