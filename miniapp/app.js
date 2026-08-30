@@ -32,9 +32,12 @@ document.querySelectorAll('[data-nav]').forEach(btn => {
 });
 
 // ====== HOME / STORE INFO ======
+let STORE_DISCOUNT_PERCENT = 0;
+
 const loadStore = async () => {
   const store = await API('/api/store');
   BOT_USERNAME = store.bot_username || '';
+  STORE_DISCOUNT_PERCENT = Math.max(0, Math.min(100, parseInt(store.discount_percent) || 0));
   document.getElementById('storeName').textContent = store.name || 'Toko Digital';
   document.getElementById('storeDesc').textContent = store.desc || '';
   const img = document.getElementById('storePhoto');
@@ -44,11 +47,20 @@ const loadStore = async () => {
     img.onerror = () => { img.style.display = 'none'; initial.style.display = 'flex'; };
     img.src = store.photo;
   }
+  const promoTitle = document.getElementById('promoTitle');
+  const promoSub = document.getElementById('promoSub');
+  if (STORE_DISCOUNT_PERCENT > 0) {
+    promoTitle.innerHTML = `Diskon Hingga <span>${STORE_DISCOUNT_PERCENT}%</span>`;
+    promoSub.textContent = 'Untuk semua produk digital, checkout via saldo atau QRIS.';
+  } else {
+    promoTitle.textContent = 'Belanja Aman & Instan';
+    promoSub.textContent = 'Checkout via saldo atau QRIS, otomatis & instan.';
+  }
 };
 
 const loadMe = async () => {
   ME = await API('/api/me');
-  document.getElementById('tierBadge').textContent = ME.tier || 'Bronze';
+  document.getElementById('tierBadge').textContent = `👑 ${ME.tier || 'Bronze'}`;
   document.getElementById('balanceAmount').textContent = ME.balance === null ? '∞ (Unlimited)' : formatRp(ME.balance);
   document.getElementById('txCount').textContent = `${ME.transaction_count || 0} transaksi`;
   document.getElementById('btnAdminDots').classList.toggle('hidden', !ME.isAdmin);
@@ -104,6 +116,14 @@ const renderProductList = (containerId, rows, clickable) => {
   }
 };
 
+// Render harga: kalau ada diskon aktif, tampilin harga asli dicoret + harga final.
+const priceHtml = (p) => {
+  if (p.discount_percent > 0 && p.final_price < p.price) {
+    return `<span class="price-strike">${formatRp(p.price)}</span> ${formatRp(p.final_price)}`;
+  }
+  return formatRp(p.price);
+};
+
 const starsHtml = (avg) => {
   const rounded = Math.round(avg || 0);
   let out = '';
@@ -131,7 +151,7 @@ const renderProductGrid = (rows, containerId = 'productList') => {
       </div>
       <div class="grid-body">
         <div class="grid-name">${escapeHtml(p.name)}</div>
-        <div class="grid-price">${formatRp(p.price)}</div>
+        <div class="grid-price">${priceHtml(p)}</div>
         <div class="grid-stars">${starsHtml(p.avg_rating)}</div>
         <button class="grid-buy-btn" data-id="${p.id}" ${p.stock_count > 0 ? '' : 'disabled'}>🛒 ${p.stock_count > 0 ? 'Beli Sekarang' : 'Stok Habis'}</button>
       </div>
@@ -229,7 +249,7 @@ const openProduct = async (id) => {
     <div class="back-link" id="backToKatalog">← Kembali ke Katalog</div>
     ${p.photo ? `<img class="detail-photo" src="${p.photo}" />` : ''}
     <div class="detail-title">${escapeHtml(p.name)}</div>
-    <div class="detail-price">${formatRp(p.price)} ${minQty > 1 ? `<span style="color:var(--hint);font-weight:400;font-size:12px">(min. beli ${minQty})</span>` : ''}</div>
+    <div class="detail-price">${priceHtml(p)} ${minQty > 1 ? `<span style="color:var(--hint);font-weight:400;font-size:12px">(min. beli ${minQty})</span>` : ''}</div>
     <div class="detail-stars">${starsHtml(p.avg_rating)} ${p.rating_count ? `<span class="detail-rating-count">(${p.rating_count} rating)</span>` : ''}</div>
     <span class="stock-pill ${p.stock_count > 0 ? 'in' : 'out'}" style="width:fit-content">${p.stock_count > 0 ? `${p.stock_count} Stok Tersedia` : 'Stok Habis'}</span>
     ${p.note ? `<div class="detail-note">📝 ${escapeHtml(p.note)}</div>` : ''}
@@ -718,6 +738,7 @@ const loadAdminStore = async () => {
   const store = await API('/api/admin/store');
   document.getElementById('adminStoreName').value = store.name || '';
   document.getElementById('adminStoreDesc').value = store.desc || '';
+  document.getElementById('adminStoreDiscount').value = store.discount_percent || 0;
 };
 document.getElementById('btnSaveStore').addEventListener('click', async () => {
   const btn = document.getElementById('btnSaveStore');
@@ -725,9 +746,11 @@ document.getElementById('btnSaveStore').addEventListener('click', async () => {
   try {
     await postJSON('/api/admin/store', {
       name: document.getElementById('adminStoreName').value,
-      desc: document.getElementById('adminStoreDesc').value
+      desc: document.getElementById('adminStoreDesc').value,
+      discount_percent: document.getElementById('adminStoreDiscount').value
     });
     loadStore();
+    loadHomeProducts();
     alert('Tersimpan.');
   } catch (e) {
     alert(e.message);
