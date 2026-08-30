@@ -445,6 +445,30 @@ const stopQrisPolling = () => {
   if (qrisCountdownTimer) { clearInterval(qrisCountdownTimer); qrisCountdownTimer = null; }
 };
 
+// Unduh gambar QRIS lewat Blob, bukan langsung href data: + atribut download —
+// beberapa in-app browser (termasuk webview Telegram) suka nolak/nge-skip download
+// kalau langsung dari data: URL. Lewat Blob URL jauh lebih reliable.
+const downloadDataUrl = async (dataUrl, filename) => {
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 4000);
+  } catch (e) {
+    // Fallback terakhir: buka di browser luar biar user bisa simpan manual
+    if (tg && tg.openLink) tg.openLink(dataUrl);
+    else window.open(dataUrl, '_blank');
+  }
+};
+
+let CURRENT_QRIS_DATA_URL = '';
+let CURRENT_QRIS_FILENAME = 'qris-pembayaran.png';
+
 const showQrisView = (type, data) => {
   showView('qris');
   document.getElementById('qrisTitle').textContent = type === 'topup' ? '💳 Top Up Saldo' : `🧾 Pesanan #${data.orderId} — ${data.productName || ''}`;
@@ -454,12 +478,15 @@ const showQrisView = (type, data) => {
   const timerEl = document.getElementById('qrisTimer');
   statusEl.className = 'qris-status';
   statusEl.textContent = '⏳ Menunggu pembayaran...';
+  timerEl.classList.remove('warn');
 
   const id = type === 'topup' ? data.topupId : data.orderId;
-  const dlBtn = document.getElementById('btnDownloadQris');
-  dlBtn.href = data.qrisImage;
-  dlBtn.download = `qris-${type}-${id || Date.now()}.png`;
+  CURRENT_QRIS_DATA_URL = data.qrisImage;
+  CURRENT_QRIS_FILENAME = `qris-${type}-${id || Date.now()}.png`;
+  document.getElementById('btnCancelTx').classList.remove('hidden');
   const statusPath = type === 'topup' ? `/api/topup-status/${id}` : `/api/order-status/${id}`;
+  const cancelPath = type === 'topup' ? `/api/cancel/topup/${id}` : `/api/cancel/order/${id}`;
+  document.getElementById('btnCancelTx').dataset.cancelPath = cancelPath;
   const expiresAt = new Date(data.expiresAt).getTime();
 
   const tick = () => {
@@ -470,6 +497,7 @@ const showQrisView = (type, data) => {
       statusEl.className = 'qris-status failed';
       statusEl.textContent = '⌛ QRIS kadaluarsa. Buat pesanan baru ya.';
       stopQrisPolling();
+      document.getElementById('btnCancelTx').classList.add('hidden');
       checkPending();
       return;
     }
@@ -488,12 +516,14 @@ const showQrisView = (type, data) => {
         statusEl.className = 'qris-status success';
         statusEl.textContent = type === 'topup' ? '🎉 Top up berhasil! Saldo sudah ditambahkan.' : '🎉 Pembayaran dikonfirmasi! Detail dikirim ke chat bot.';
         stopQrisPolling();
+        document.getElementById('btnCancelTx').classList.add('hidden');
         loadMe();
         checkPending();
-      } else if (res.status === 'REJECTED' || res.status === 'EXPIRED') {
+      } else if (res.status === 'REJECTED' || res.status === 'EXPIRED' || res.status === 'CANCELLED') {
         statusEl.className = 'qris-status failed';
-        statusEl.textContent = res.status === 'EXPIRED' ? '⌛ QRIS kadaluarsa.' : '❌ Pembayaran ditolak.';
+        statusEl.textContent = res.status === 'EXPIRED' ? '⌛ QRIS kadaluarsa.' : res.status === 'CANCELLED' ? '✕ Dibatalkan.' : '❌ Pembayaran ditolak.';
         stopQrisPolling();
+        document.getElementById('btnCancelTx').classList.add('hidden');
         checkPending();
       }
     } catch (e) { /* diamkan, coba lagi di polling berikutnya */ }
@@ -501,6 +531,30 @@ const showQrisView = (type, data) => {
   qrisPollTimer = setInterval(poll, 4000);
   poll();
 };
+
+document.getElementById('btnDownloadQris').addEventListener('click', () => {
+  if (CURRENT_QRIS_DATA_URL) downloadDataUrl(CURRENT_QRIS_DATA_URL, CURRENT_QRIS_FILENAME);
+});
+
+document.getElementById('btnCancelTx').addEventListener('click', async (e) => {
+  const path = e.currentTarget.dataset.cancelPath;
+  if (!path) return;
+  if (!confirm('Yakin mau batalkan transaksi ini?')) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    await postJSON(path, {});
+    stopQrisPolling();
+    document.getElementById('qrisStatus').className = 'qris-status failed';
+    document.getElementById('qrisStatus').textContent = '✕ Transaksi dibatalkan.';
+    btn.classList.add('hidden');
+    checkPending();
+  } catch (e2) {
+    alert(e2.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 document.getElementById('backFromQris').addEventListener('click', () => { showView('home'); checkPending(); });
 
