@@ -59,6 +59,7 @@ db.serialize(() => {
   db.run(`ALTER TABLE store ADD COLUMN welcome_msg TEXT`, () => {});
   db.run(`ALTER TABLE store ADD COLUMN leave_msg TEXT`, () => {});
   db.run(`ALTER TABLE store ADD COLUMN required_group TEXT`, () => {});
+  db.run(`ALTER TABLE store ADD COLUMN discount_percent INTEGER DEFAULT 0`, () => {});
   db.run(`CREATE TABLE IF NOT EXISTS users ( user_id INTEGER PRIMARY KEY, upline_id INTEGER DEFAULT 0, balance INTEGER DEFAULT 0, tier TEXT DEFAULT 'Bronze' )`);
   db.run(`ALTER TABLE users ADD COLUMN balance INTEGER DEFAULT 0`, () => {});
   db.run(`ALTER TABLE users ADD COLUMN tier TEXT DEFAULT 'Bronze'`, () => {});
@@ -2254,6 +2255,36 @@ const requireAdmin = (req, res, next) => {
 // Kadaluarsakan otomatis transaksi PENDING yang qris_expires_at-nya sudah lewat, lalu
 // cari apakah user masih punya transaksi (order/topup) yang PENDING & belum expired.
 // Dipakai supaya user tidak bisa generate QRIS baru selama masih ada transaksi menggantung.
+// Lock per-user buat nutup celah race condition: kalau checkout/QRIS di-spam klik
+// (atau 2 request nyaris bareng), request kedua langsung ditolak selagi request
+// pertama masih diproses — bukan cuma ngandelin cek "ada pending?" doang, karena
+// cek itu bisa keduanya lolos kalau baris PENDING-nya belum sempat ke-insert pas
+// request kedua ngecek. Lock dilepas otomatis begitu response request pertama kelar
+// (event 'finish'/'close'), apapun hasilnya (sukses/gagal/error).
+const checkoutLocks = new Set();
+const withCheckoutLock = (handler) => (req, res) => {
+  const userId = req.tgUser.id;
+  if (checkoutLocks.has(userId)) {
+    return res.status(409).json({ error: 'Masih memproses permintaan sebelumnya, tunggu sebentar ya.' });
+  }
+  checkoutLocks.add(userId);
+  const release = () => checkoutLocks.delete(userId);
+  res.once('finish', release);
+  res.once('close', release);
+  handler(req, res);
+};
+
+// Ambil persen diskon toko yang lagi aktif (diatur admin lewat dashboard).
+// Selalu baca dari DB — JANGAN PERNAH percaya nilai diskon yang dikirim dari klien/HP
+// pembeli, karena itu gampang dimodif buat checkout hampir gratis.
+const getStoreDiscountPercent = (cb) => {
+  db.get(`SELECT discount_percent FROM store WHERE id = 1`, (err, row) => {
+    let pct = row ? Number(row.discount_percent) || 0 : 0;
+    pct = Math.max(0, Math.min(100, pct));
+    cb(pct);
+  });
+};
+
 const findPendingTransaction = (userId, cb) => {
   const now = new Date().toISOString();
   db.run(`UPDATE orders SET status = 'EXPIRED' WHERE user_id = ? AND status = 'PENDING' AND qris_expires_at IS NOT NULL AND qris_expires_at < ?`, [userId, now], () => {
@@ -2297,12 +2328,13 @@ const resolvePhotoUrl = (photo) => {
 };
 
 app.get('/api/store', (req, res) => {
-  db.get(`SELECT name, desc, photo FROM store WHERE id = 1`, (err, row) => {
+  db.get(`SELECT name, desc, photo, discount_percent FROM store WHERE id = 1`, (err, row) => {
     res.json({
       name: (DEFAULT_STORE_NAME && DEFAULT_STORE_NAME.trim() !== '') ? DEFAULT_STORE_NAME : (row && row.name ? row.name : ''),
       desc: (DEFAULT_STORE_DESC && DEFAULT_STORE_DESC.trim() !== '') ? DEFAULT_STORE_DESC : (row && row.desc ? row.desc : ''),
       photo: resolvePhotoUrl((DEFAULT_HEADER_PHOTO && DEFAULT_HEADER_PHOTO.trim() !== '') ? DEFAULT_HEADER_PHOTO : (row && row.photo ? row.photo : '')),
-      bot_username: BOT_USERNAME
+      bot_username: BOT_USERNAME,
+      discount_percent: row ? Math.max(0, Math.min(100, Number(row.discount_percent) || 0)) : 0
     });
   });
 });
@@ -2339,18 +2371,33 @@ const PRODUCT_SELECT = `SELECT p.*, COUNT(DISTINCT s.id) AS stock_count,
   (SELECT COUNT(r.id) FROM ratings r WHERE r.product_id = p.id) AS rating_count
   FROM products p LEFT JOIN stock_items s ON p.id = s.product_id AND s.status = 'AVAILABLE'`;
 
+// Tempel field harga-setelah-diskon (final_price) ke tiap produk berdasarkan
+// discount_percent toko saat ini. discount_percent = 0 -> final_price sama dgn price.
+const withDiscountedPrice = (pct) => (p) => ({
+  ...p,
+  discount_percent: pct,
+  final_price: pct > 0 ? Math.max(0, Math.round(p.price * (100 - pct) / 100)) : p.price
+});
+
 app.get('/api/products', requireTelegramAuth, (req, res) => {
   const q = (req.query.q || '').toString().trim();
   const sql = `${PRODUCT_SELECT} WHERE p.parent_id IS NULL ${q ? 'AND p.name LIKE ?' : ''} GROUP BY p.id ORDER BY p.id DESC`;
-  db.all(sql, q ? [`%${q}%`] : [], (err, rows) => res.json((rows || []).map(r => ({ ...r, photo: resolvePhotoUrl(r.photo) }))));
+  getStoreDiscountPercent((pct) => {
+    db.all(sql, q ? [`%${q}%`] : [], (err, rows) => res.json((rows || []).map(r => ({ ...r, photo: resolvePhotoUrl(r.photo) })).map(withDiscountedPrice(pct))));
+  });
 });
 
 app.get('/api/products/:id', requireTelegramAuth, (req, res) => {
   const id = req.params.id;
-  db.get(`${PRODUCT_SELECT} WHERE p.id = ? GROUP BY p.id`, [id], (err, prod) => {
-    if (!prod) return res.status(404).json({ error: 'Produk tidak ditemukan' });
-    db.all(`${PRODUCT_SELECT} WHERE p.parent_id = ? GROUP BY p.id`, [id], (err2, variants) => {
-      res.json({ ...prod, photo: resolvePhotoUrl(prod.photo), variants: (variants || []).map(v => ({ ...v, photo: resolvePhotoUrl(v.photo) })) });
+  getStoreDiscountPercent((pct) => {
+    db.get(`${PRODUCT_SELECT} WHERE p.id = ? GROUP BY p.id`, [id], (err, prod) => {
+      if (!prod) return res.status(404).json({ error: 'Produk tidak ditemukan' });
+      db.all(`${PRODUCT_SELECT} WHERE p.parent_id = ? GROUP BY p.id`, [id], (err2, variants) => {
+        res.json(withDiscountedPrice(pct)({
+          ...prod, photo: resolvePhotoUrl(prod.photo),
+          variants: (variants || []).map(v => ({ ...v, photo: resolvePhotoUrl(v.photo) })).map(withDiscountedPrice(pct))
+        }));
+      });
     });
   });
 });
@@ -2382,10 +2429,11 @@ app.get('/api/stock-live', requireTelegramAuth, (req, res) => {
 });
 
 // ====== CHECKOUT QRIS OTOMATIS (langsung dari Mini App) ======
-app.post('/api/checkout/product', requireTelegramAuth, async (req, res) => {
+app.post('/api/checkout/product', requireTelegramAuth, withCheckoutLock(async (req, res) => {
   const prodId = req.body.prodId;
   const qty = parseInt(req.body.qty) || 1;
-  const discount = parseInt(req.body.discount) || 0;
+  // Diskon SELALU dihitung server dari discount_percent toko — nilai `discount` yang
+  // dikirim dari body request diabaikan total, biar gak bisa dimodif klien.
 
   findPendingTransaction(req.tgUser.id, (pending) => {
     if (pending) return res.status(409).json({ error: 'Kamu masih punya transaksi yang belum selesai. Selesaikan/tunggu itu dulu ya sebelum bikin QRIS baru.', pending });
@@ -2398,6 +2446,8 @@ app.post('/api/checkout/product', requireTelegramAuth, async (req, res) => {
         if (available <= 0) return res.status(400).json({ error: `Stok ${prod.name} habis.` });
         if (qty < minQty) return res.status(400).json({ error: `Minimal beli produk ini ${minQty}.` });
         if (qty > available) return res.status(400).json({ error: `Stok cuma ${available}.` });
+        const discountPct = await new Promise((resolve) => getStoreDiscountPercent(resolve));
+        const discount = Math.round((prod.price * qty) * discountPct / 100);
         const basePrice = Math.max(1000, (prod.price * qty) - discount);
         const feeAmount = Math.ceil(basePrice * QRIS_AUTO_FEE_PERCENT / 100);
         const amountToPay = basePrice + feeAmount;
@@ -2425,9 +2475,9 @@ app.post('/api/checkout/product', requireTelegramAuth, async (req, res) => {
       });
     });
   });
-});
+}));
 
-app.post('/api/checkout/topup', requireTelegramAuth, async (req, res) => {
+app.post('/api/checkout/topup', requireTelegramAuth, withCheckoutLock(async (req, res) => {
   const amount = parseInt(req.body.amount);
   if (!Number.isInteger(amount) || amount < MIN_TOPUP || amount > 10000000) {
     return res.status(400).json({ error: `Nominal harus Rp${MIN_TOPUP.toLocaleString('id-ID')}–Rp10.000.000.` });
@@ -2456,10 +2506,10 @@ app.post('/api/checkout/topup', requireTelegramAuth, async (req, res) => {
       res.status(500).json({ error: `Gagal membuat QRIS: ${e.message}` });
     }
   });
-});
+}));
 
 // ====== CHECKOUT PAKAI SALDO (langsung dari Mini App, tanpa QRIS) ======
-app.post('/api/checkout/product-saldo', requireTelegramAuth, async (req, res) => {
+app.post('/api/checkout/product-saldo', requireTelegramAuth, withCheckoutLock(async (req, res) => {
   const prodId = req.body.prodId;
   const qty = parseInt(req.body.qty) || 1;
   const userId = req.tgUser.id;
@@ -2475,7 +2525,8 @@ app.post('/api/checkout/product-saldo', requireTelegramAuth, async (req, res) =>
       db.get(`SELECT balance, tier FROM users WHERE user_id = ?`, [userId], (err3, row) => {
         const tier = row ? (row.tier || 'Bronze') : 'Bronze';
         const balance = row ? (row.balance || 0) : 0;
-        const totalCost = prod.price * qty;
+        getStoreDiscountPercent((discountPct) => {
+        const totalCost = Math.max(1000, Math.round((prod.price * qty) * (100 - discountPct) / 100));
         const isUnlimited = tier === 'Owner' || userId === getAdminId();
         if (!isUnlimited && balance < totalCost) return res.status(400).json({ error: 'Saldo kamu tidak cukup. Silakan top up dulu.' });
 
@@ -2512,10 +2563,11 @@ app.post('/api/checkout/product-saldo', requireTelegramAuth, async (req, res) =>
         } else {
           finalize();
         }
+        });
       });
     });
   });
-});
+}));
 
 app.get('/api/order-status/:id', requireTelegramAuth, (req, res) => {
   db.get(`SELECT id, status, user_id FROM orders WHERE id = ?`, [req.params.id], (err, row) => {
@@ -2612,13 +2664,16 @@ app.post('/api/admin/products/:id', requireTelegramAuth, requireAdmin, (req, res
 });
 
 app.get('/api/admin/store', requireTelegramAuth, requireAdmin, (req, res) => {
-  db.get(`SELECT name, desc, photo FROM store WHERE id = 1`, (err, row) => res.json(row || {}));
+  db.get(`SELECT name, desc, photo, discount_percent FROM store WHERE id = 1`, (err, row) => res.json(row || {}));
 });
 
 app.post('/api/admin/store', requireTelegramAuth, requireAdmin, (req, res) => {
   const name = (req.body.name || '').toString().slice(0, 100);
   const desc = (req.body.desc || '').toString().slice(0, 300);
-  db.run(`UPDATE store SET name = ?, desc = ? WHERE id = 1`, [name, desc], (err) => {
+  let discountPercent = parseInt(req.body.discount_percent);
+  if (!Number.isFinite(discountPercent) || discountPercent < 0) discountPercent = 0;
+  if (discountPercent > 100) discountPercent = 100;
+  db.run(`UPDATE store SET name = ?, desc = ?, discount_percent = ? WHERE id = 1`, [name, desc, discountPercent], (err) => {
     if (err) return res.status(500).json({ error: 'Gagal menyimpan.' });
     res.json({ ok: true });
   });
